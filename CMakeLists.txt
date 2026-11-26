@@ -67,6 +67,7 @@ add_library(twill_core STATIC
   src/engine/PlaitsVoice.cpp
   src/engine/Snapshot.cpp
   src/model/Edit.cpp
+  src/model/FmBank.cpp
   src/model/Project.cpp
   src/model/ProjectFile.cpp
   src/model/Scale.cpp

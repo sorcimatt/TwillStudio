@@ -452,6 +452,7 @@ const char* const kArpPatternNames[kNumArpPatterns] = {
     "Up-down, 4 octaves", "Random, 1 octave",  "Random, 2 octaves", "Random, 4 octaves"};
 
 // The steps a track's engine reads a setting in: their names, how many, and the scale it applies.
+// Without names (the six-op FM engines' patches, whose names are in the bank), they're numbered.
 struct Steps {
   const char* const* names = nullptr;
   int count = 0;
@@ -461,6 +462,8 @@ struct Steps {
 Steps steps_of(const Track& t, ParamId id) {
   if (t.instrument != InstrumentType::Macro) return {};
   if (id == kParamHarmonics && (t.macro.engine == 7 || t.macro.engine == 14)) return {kChordNames, kNumChords, 1.02f};
+  // The six-op FM engines: Harmonics picks one of the bank's 32 patches, at 1.02 times the setting.
+  if (id == kParamHarmonics && t.macro.engine >= 2 && t.macro.engine <= 4) return {nullptr, 32, 1.02f};
   if (id == kParamTimbre && t.macro.engine == 7) return {kArpPatternNames, kNumArpPatterns, 1};
   return {};
 }
@@ -469,7 +472,13 @@ Steps steps_of(const Track& t, ParamId id) {
 
 std::string format_track_param(const Track& t, ParamId id, float v) {
   const Steps s = steps_of(t, id);
+  if (s.count && !s.names) return "Patch " + std::to_string(s.index(v) + 1);
   return s.count ? std::string(s.names[s.index(v)]) : format_param(id, v);
+}
+
+int fm_patch_index(const Track& t) {
+  const Steps s = steps_of(t, kParamHarmonics);
+  return s.count && !s.names ? s.index(t.macro.harmonics) : -1;
 }
 
 float step_track_param(const Track& t, ParamId id, float v, int step, bool coarse, float fine) {
@@ -575,7 +584,7 @@ bool Track::operator==(const Track& o) const {
          macro == o.macro && sampler == o.sampler && tone == o.tone && level == o.level && pan == o.pan &&
          send_chorus == o.send_chorus && send_delay == o.send_delay && send_reverb == o.send_reverb &&
          std::equal(std::begin(mods), std::end(mods), std::begin(o.mods)) && midi_channel == o.midi_channel &&
-         midi_cc[0] == o.midi_cc[0] && midi_cc[1] == o.midi_cc[1] &&
+         midi_cc[0] == o.midi_cc[0] && midi_cc[1] == o.midi_cc[1] && fm_bank == o.fm_bank &&
 #if TWILL_PLUGINS
          plugin == o.plugin &&
 #endif

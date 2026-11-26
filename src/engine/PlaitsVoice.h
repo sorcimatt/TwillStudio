@@ -32,6 +32,9 @@ struct MacroParams {
   // The chiptune engine's arpeggio: one step every this many samples while a note is held (0: it
   // doesn't step). Each note starts it again on the note's own pitch.
   float arp_step = 0;
+  // The six-op FM engines' bank: a DX7 32-voice bank (model/FmBank.h), or null for the built-in
+  // ones. Kept alive by whoever owns it (the app's bank cache) while a voice may play it.
+  const uint8_t* fm_bank = nullptr;
 };
 
 class PlaitsVoice {

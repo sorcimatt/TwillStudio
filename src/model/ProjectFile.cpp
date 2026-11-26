@@ -187,6 +187,16 @@ std::vector<uint8_t> save_project(const Project& p) {
     w.str(t.sampler.preset);                                 // version 10
     w.end_chunk(c);
   }
+  // A track's own DX7 bank (Track::fm_bank): a chunk of its own (FMBK), which builds that don't
+  // know it skip, playing the engine's built-in bank. Version 1: the track's index, then the path.
+  for (size_t i = 0; i < p.tracks.size(); ++i) {
+    if (p.tracks[i].fm_bank.empty()) continue;
+    c = w.begin_chunk("FMBK");
+    w.u16(1);
+    w.u8(uint8_t(i));
+    w.str(p.tracks[i].fm_bank);
+    w.end_chunk(c);
+  }
 #if TWILL_PLUGINS
   // Plugin tracks: a chunk of their own (PLUG), which a build without plugins skips as it skips
   // any chunk it doesn't know, playing the track as MIDI out. Version 1.
@@ -264,6 +274,7 @@ bool load_project(const uint8_t* data, size_t size, Project& out, std::string& e
 #if TWILL_PLUGINS
   std::vector<std::pair<size_t, PluginSettings>> plugs;  // PLUG chunks, put on their tracks at the end
 #endif
+  std::vector<std::pair<size_t, std::string>> fm_banks;  // FMBK chunks, likewise
   while (r.ok() && !r.at_end()) {
     if (!r.tag(tag)) break;
     uint32_t len = r.u32();
@@ -435,6 +446,12 @@ bool load_project(const uint8_t* data, size_t size, Project& out, std::string& e
       if (r.ok()) plugs.emplace_back(track, std::move(pl));
     }
 #endif
+    else if (std::memcmp(tag, "FMBK", 4) == 0) {
+      r.u16();  // version 1
+      const size_t track = r.u8();
+      std::string path = r.str();
+      if (r.ok()) fm_banks.emplace_back(track, std::move(path));
+    }
     // Unknown chunks, and anything newer at the end of a known one, are skipped.
     if (!r.ok()) {
       error = "project file is damaged";
@@ -451,6 +468,8 @@ bool load_project(const uint8_t* data, size_t size, Project& out, std::string& e
   for (auto& [track, pl] : plugs)
     if (track < p.tracks.size()) p.tracks[track].plugin = std::move(pl);
 #endif
+  for (auto& [track, path] : fm_banks)
+    if (track < p.tracks.size()) p.tracks[track].fm_bank = std::move(path);
   out = std::move(p);
   return true;
 }

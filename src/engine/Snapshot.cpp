@@ -23,6 +23,7 @@ std::unique_ptr<Snapshot> build_snapshot(const Project& p, int max_tracks, uint6
 #if TWILL_PLUGINS
                                          , const PluginResolver& plugins
 #endif
+                                         , const FmBankResolver& fm_banks
 ) {
   auto s = std::make_unique<Snapshot>();
   s->revision = revision;
@@ -61,6 +62,7 @@ std::unique_ptr<Snapshot> build_snapshot(const Project& p, int max_tracks, uint6
     st.voices = std::max(1, std::min(t.voices, kMaxVoicesPerTrack));
     st.legato = t.voices == 0;
     st.macro = t.macro;
+    if (fm_banks && t.instrument == InstrumentType::Macro && !t.fm_bank.empty()) st.fm_bank = fm_banks(t.fm_bank);
     st.tone = t.tone;
     const SamplerSettings& sm = t.sampler;
     st.sampler.mode = sm.mode;

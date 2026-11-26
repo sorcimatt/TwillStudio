@@ -18,6 +18,7 @@
 #include "app/SongNames.h"
 #include "Version.h"
 #include "engine/PlaitsVoice.h"
+#include "model/FmBank.h"
 #include "model/ProjectFile.h"
 
 namespace twill {
@@ -221,6 +222,28 @@ std::shared_ptr<const SampleData> App::load_sample(const std::string& path, std:
   }
   samples_[path] = s;
   return s;
+}
+
+const uint8_t* App::load_fm_bank(const std::string& path, std::string* error) {
+  auto it = fm_banks_.find(path);
+  if (it != fm_banks_.end()) return it->second.data();
+  auto failed = fm_bank_errors_.find(path);
+  if (failed != fm_bank_errors_.end()) {
+    if (error) *error = failed->second;
+    return nullptr;
+  }
+  std::vector<uint8_t> bytes, bank;
+  std::string err, warning;
+  if (!p_.read_file(path.c_str(), bytes)) err = "Can't read " + path;
+  else if (!parse_fm_bank(bytes.data(), bytes.size(), bank, err, &warning)) err += ": " + path;
+  if (!err.empty()) {
+    fm_bank_errors_[path] = err;
+    if (error) *error = err;
+    return nullptr;
+  }
+  if (!warning.empty()) message(warning);
+  // A std::map's elements stay where they are as others are added, so the pointer holds.
+  return fm_banks_.emplace(path, std::move(bank)).first->second.data();
 }
 
 size_t App::loaded_sample_bytes() const {
@@ -791,6 +814,7 @@ std::vector<float> App::render_offline(const Project& song, bool master) {
                                    return it == offline.end() ? nullptr : it->second.get();
                                  }
 #endif
+                                 , [this](const std::string& path) { return load_fm_bank(path); }
                                  ));
   e.locate(0);
   e.play();
@@ -1366,6 +1390,7 @@ void App::sync_engine() {
 #if TWILL_PLUGINS
                                  , [this](const Track& t) { return plugin_instance(t); }
 #endif
+                                 , [this](const std::string& path) { return load_fm_bank(path); }
                                  ));
 }
 

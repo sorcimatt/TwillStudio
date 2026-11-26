@@ -48,7 +48,7 @@ class InstrumentView {
   };
   std::vector<Row> rows();
   Row param_row(ParamId id, const char* label = nullptr);
-  enum class Browse { Samples, Presets };  // what the file browser lists besides folders
+  enum class Browse { Samples, Presets, FmBanks };  // what the file browser lists besides folders
   void open_browser(std::function<void(const std::string&)> on_pick, const std::string& start,
                     Browse what = Browse::Samples);
   void browser_input();

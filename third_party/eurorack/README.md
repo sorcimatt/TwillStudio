@@ -13,9 +13,14 @@ repository, keeping their original paths, and unmodified except for the change l
 Licence: MIT (the STM32 projects in that repository), see `LICENSE` here and `stmlib/LICENSE`; every
 file also carries its own notice.
 
-One local change, marked "Twill Studio" in the code: the chiptune engine can restart its arpeggio
-(`ChiptuneEngine::restart_arpeggio()`, reached through `Voice::chiptune_engine()`), so that each note
-begins on its own pitch. Upstream, every trigger steps the arpeggio on from wherever it was.
+Two local changes, marked "Twill Studio" in the code:
+
+- The chiptune engine can restart its arpeggio (`ChiptuneEngine::restart_arpeggio()`, reached through
+  `Voice::chiptune_engine()`), so that each note begins on its own pitch. Upstream, every trigger steps
+  the arpeggio on from wherever it was.
+- A voice can be given a DX7 bank loaded from a file (`Voice::set_user_fm_bank()`), which the six-op FM
+  engines play in place of their built-in banks (`plaits/dsp/voice.{h,cc}`). Upstream reads user banks
+  from the module's flash, through `user_data.h`, which a `-DTEST` build turns off.
 
 Built with `-DTEST`, which swaps 32-bit ARM inline assembly for portable C and makes
 `plaits/user_data.h` return no user data (the six-op FM engines then use their built-in DX7 banks).

@@ -196,6 +196,10 @@ class App {
   size_t loaded_samples() const { return samples_.size(); }
   size_t loaded_sample_bytes() const;
   size_t multisample_bytes(const std::string& preset) const;  // its samples' share of the memory
+  // A DX7 32-voice bank file for the six-op FM engines (Track::fm_bank), named as samples are: its
+  // voices (kFmBankBytes), read once and kept for the rest of the run (4 KB each), since voices
+  // and snapshots point into them. Null (with a reason) if it can't be read.
+  const uint8_t* load_fm_bank(const std::string& path, std::string* error = nullptr);
   // A multisample's preset (.dspreset or .sfz), read once with its zones' samples loaded (they're
   // kept while a track uses the preset). It loads in the background: null until it's ready
   // (multisample_loading() says when it's on its way), or null with why if the preset can't be
@@ -313,6 +317,8 @@ class App {
   std::unique_ptr<MixerView> mixer_;
   std::map<std::string, std::shared_ptr<const SampleData>> samples_;
   std::map<std::string, std::string> sample_errors_;  // so a missing file isn't retried every frame
+  std::map<std::string, std::vector<uint8_t>> fm_banks_;  // never erased: voices point into them
+  std::map<std::string, std::string> fm_bank_errors_;
 #if TWILL_PLUGINS
   struct LoadedPlugin {
     std::unique_ptr<PluginInstance> inst;

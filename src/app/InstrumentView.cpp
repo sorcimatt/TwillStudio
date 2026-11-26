@@ -11,6 +11,8 @@
 
 #include "app/FactorySounds.h"
 #include "engine/PlaitsVoice.h"
+#include "model/FmBank.h"
+#include "plaits/resources.h"  // the six-op FM engines' built-in banks, for their patch names
 
 namespace twill {
 
@@ -202,9 +204,41 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
   }
 
   if (t.instrument == InstrumentType::Macro) {
+    const bool six_op = t.macro.engine >= 2 && t.macro.engine <= 4;
+    if (six_op) {
+      // The DX7 bank the engine plays: its own built-in one, or a .syx file (a 32-voice bank).
+      Row bank;
+      bank.label = "Bank";
+      bank.value = [&app, track] {
+        const std::string& b = app.project().tracks[size_t(track)].fm_bank;
+        if (b.empty()) return std::string("Built-in (A: load .syx)");
+        std::string name = file_name(b);
+        name = name.substr(0, name.find_last_of('.'));
+        return app.load_fm_bank(b) ? name : name + " (missing)";
+      };
+      bank.press = [this, &app, track, change] {
+        open_browser([change](const std::string& path) { change([&path](Track& tr) { tr.fm_bank = path; }); },
+                     app.project().tracks[size_t(track)].fm_bank, Browse::FmBanks);
+      };
+      bank.reset = [change] { change([](Track& tr) { tr.fm_bank.clear(); }); };
+      out.push_back(bank);
+    }
     for (ParamId id : {kParamHarmonics, kParamTimbre, kParamMorph, kParamFmAmount, kParamTimbreAmount,
                        kParamMorphAmount}) {
       Row row = param_row(id);
+      if (id == kParamHarmonics && six_op) {
+        // Harmonics picks the patch: shown by its number and the name stored in the bank.
+        row.label = "Patch";
+        row.value = [&app, track] {
+          const Track& tr = app.project().tracks[size_t(track)];
+          const int i = fm_patch_index(tr);
+          if (i < 0) return format_track_param(tr, kParamHarmonics, tr.macro.harmonics);
+          const uint8_t* b = tr.fm_bank.empty() ? nullptr : app.load_fm_bank(tr.fm_bank);
+          if (!b) b = plaits::fm_patches_table[tr.macro.engine - 2];
+          const std::string name = fm_voice_name(b, i);
+          return std::to_string(i + 1) + (name.empty() ? std::string() : "  " + name);
+        };
+      }
       out.push_back(row);
     }
     Row output;
@@ -527,8 +561,13 @@ void InstrumentView::open_browser(std::function<void(const std::string&)> on_pic
   Platform& p = app_.platform();
   on_pick_ = std::move(on_pick);
   browse_ = what;
-  // Start in the current sample's folder, else the app's samples folder.
+  // Start in the current sample's folder, else the app's samples folder (for DX7 banks, its banks
+  // folder, made the first time).
   std::string dir = p.data_dir() + "samples/";
+  if (what == Browse::FmBanks) {
+    dir = p.data_dir() + "banks/";
+    p.make_dir(dir.c_str());
+  }
   if (!start.empty()) {
     std::string full = start[0] == '/' ? start : p.data_dir() + start;
     dir = full.substr(0, full.find_last_of('/') + 1);
@@ -564,7 +603,10 @@ bool InstrumentView::list_browser_dir(const std::string& dir, const std::string&
   std::vector<Platform::DirEntry> kept;
   for (Platform::DirEntry& d : e) {
     if (!d.is_dir) {
-      if (presets ? is_multisample_file(d.name) : is_audio_file(d.name)) kept.push_back(d);
+      if (browse_ == Browse::FmBanks ? is_fm_bank_file(d.name)
+          : presets                  ? is_multisample_file(d.name)
+                                     : is_audio_file(d.name))
+        kept.push_back(d);
       continue;
     }
     if (in_bundle) continue;
@@ -643,6 +685,17 @@ void InstrumentView::browser_input() {
           on_pick_(path);  // loads, and says if it can't
           close();
           return;
+        }
+      } else if (browse_ == Browse::FmBanks) {
+        if (in.pressed(kA)) {
+          std::string err;
+          if (!app_.load_fm_bank(path, &err)) {
+            app_.message(err);  // stays open, to pick another
+          } else {
+            on_pick_(path);
+            close();
+            return;
+          }
         }
       } else if (in.pressed(kY)) {
         std::string err;
@@ -1284,7 +1337,9 @@ void InstrumentView::draw_browser(Canvas& c, const Rect& r) {
   if (bsel_ >= btop_ + visible) btop_ = bsel_ - visible + 1;
   const bool empty = entries_.empty() || (entries_.size() == 1 && entries_[0].name == "..");
   if (empty) c.text(f, r.x + app_.u(16), top_y + int(entries_.size() + 1) * row_h, 
-                         browse_ == Browse::Presets ? "No folders or presets here" : "No folders or audio files here",
+                         browse_ == Browse::Presets   ? "No folders or presets here"
+                         : browse_ == Browse::FmBanks ? "No folders or DX7 banks (.syx) here"
+                                                      : "No folders or audio files here",
                          th.text_secondary);
   for (int i = btop_; i < int(entries_.size()) && i < btop_ + visible; ++i) {
     const int y = top_y + (i - btop_) * row_h;

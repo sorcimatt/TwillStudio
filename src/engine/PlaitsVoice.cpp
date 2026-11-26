@@ -62,6 +62,8 @@ void PlaitsVoice::render_block(const MacroParams& p) {
   patch.engine = p.engine;
   patch.decay = p.decay;
   patch.lpg_colour = p.lpg_colour;
+  // The FM engines' bank: reloaded only when it changes (or the engine does).
+  voice_->set_user_fm_bank(p.fm_bank);
 
   // The chiptune engine steps its arpeggio at each trigger: while a note is held, a new edge every
   // arp_step samples (the gate dropped for one block, as for a retriggered note).

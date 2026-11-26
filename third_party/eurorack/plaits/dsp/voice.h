@@ -172,6 +172,15 @@ class Voice {
   }
   // Twill Studio: the chiptune engine, to restart its arpeggio at each note.
   ChiptuneEngine& chiptune_engine() { return chiptune_engine_; }
+  // Twill Studio: a DX7 32-voice bank (4096 bytes, packed as in a bulk dump) that the six-op FM
+  // engines play in place of their built-in banks; NULL for the built-in ones. The caller keeps it
+  // alive while it's set. Changing it reloads the patches if a six-op engine is playing; otherwise
+  // the next switch to one picks it up.
+  void set_user_fm_bank(const uint8_t* bank) {
+    if (bank == user_fm_bank_) return;
+    user_fm_bank_ = bank;
+    if (previous_engine_index_ >= 2 && previous_engine_index_ <= 4) reload_user_data_ = true;
+  }
 
   void Render(
       const Patch& patch,
@@ -233,6 +242,7 @@ class Voice {
   stmlib::HysteresisQuantizer2 engine_quantizer_;
   
   bool reload_user_data_;
+  const uint8_t* user_fm_bank_;  // Twill Studio, see set_user_fm_bank()
   int previous_engine_index_;
   float engine_cv_;
   

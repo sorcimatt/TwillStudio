@@ -28,6 +28,10 @@ using PluginResolver = std::function<PluginInstance*(const Track& t)>;
 // The same for a multisample's preset, read with its zones (and their samples loaded, so `samples`
 // finds them); null when it can't be read.
 using MultisampleResolver = std::function<const Multisample*(const std::string& path)>;
+// The same for a track's DX7 bank file (Track::fm_bank): its kFmBankBytes of voices, or null when it
+// can't be read (the engine's built-in bank plays). The app keeps the bytes alive while any snapshot
+// or voice may use them.
+using FmBankResolver = std::function<const uint8_t*(const std::string& path)>;
 
 // A multisample zone as the audio thread plays it: its sample found, and its frames at 48 kHz.
 struct SnapZone {
@@ -86,6 +90,7 @@ struct SnapTrack {
   int voices = 1;
   bool legato = false;  // one voice; touching or overlapping notes slur instead of retriggering
   MacroSettings macro;
+  const uint8_t* fm_bank = nullptr;  // the six-op FM engines' bank, if the track has its own
   SnapSampler sampler;
   ToneSettings tone;
   const SampleData* sample = nullptr;              // the sampler's sample (single and slice modes)
@@ -123,6 +128,7 @@ std::unique_ptr<Snapshot> build_snapshot(const Project& p, int max_tracks, uint6
 #if TWILL_PLUGINS
                                          , const PluginResolver& plugins = nullptr
 #endif
+                                         , const FmBankResolver& fm_banks = nullptr
 );
 
 }  // namespace twill

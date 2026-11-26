@@ -105,6 +105,8 @@ std::string format_param(ParamId id, float value);
 // and pattern, and the chord engine's chord, are named ("Minor", "Up-down, 2 octaves"). The sound
 // view, parameter locks and automation lanes all show values this way.
 std::string format_track_param(const Track& t, ParamId id, float value);
+// The patch a six-op FM track's Harmonics picks in its bank (0-31), or -1 on any other engine.
+int fm_patch_index(const Track& t);
 // One press of a control from `value`: to the middle of the next step where the engine reads the
 // setting in steps, else by `fine` of the range (ten times that when coarse), or by 1 (4, or 12 for
 // the root note, when coarse) for a whole-number setting. Kept in range.
@@ -331,6 +333,10 @@ struct Track {
   Modulator mods[kModulators];
   int midi_channel = 0;  // MIDI Out tracks: 0-15 (track chunk version 4)
   int midi_cc[2] = {1, 74};  // MIDI Out tracks: the controllers kParamMidiCcA/B send (version 5)
+  // Macro tracks on a six-op FM engine: a DX7 32-voice bank file (model/FmBank.h) played in place of
+  // the engine's built-in bank, named as samples are; empty for the built-in one. Saved in a chunk
+  // of its own (FMBK), so other builds skip it and play the built-in bank.
+  std::string fm_bank;
 #if TWILL_PLUGINS
   PluginSettings plugin;     // Plugin tracks
 #endif

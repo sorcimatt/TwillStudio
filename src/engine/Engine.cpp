@@ -1076,6 +1076,7 @@ void Engine::render_block(float* out, int frames) {
       if (v.instrument == InstrumentType::Macro) {
         if (grid_start) v.glide_note += (v.pitch_target - v.glide_note) * glide_step;
         MacroParams p = macro_params_for(set.macro, set.tone, v.glide_note + pitch_offset);
+        p.fm_bank = t.fm_bank;
         // With the ADSR in charge the low-pass gate stays open and the envelope is applied here, as
         // a plain amplifier: the gate's own slow closing would otherwise smooth the envelope away
         // (a retriggered note's attack, for one, would be inaudible).

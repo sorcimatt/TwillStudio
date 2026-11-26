@@ -26,8 +26,10 @@
 #include "engine/Effects.h"
 #include "engine/Engine.h"
 #include "engine/PlaitsVoice.h"
+#include "model/FmBank.h"
 #include "model/Multisample.h"
 #include "engine/Sample.h"
+#include "plaits/resources.h"  // the six-op FM engines' built-in banks
 #include "model/Edit.h"
 #include "model/ProjectFile.h"
 #include "platform/null/NullPlatform.h"
@@ -2741,6 +2743,167 @@ void test_stepped_param_names() {
   CHECK(std::fabs(twill::step_track_param(t, twill::kParamHarmonics, 0.5f, 1, false, 0.01f) - 0.51f) < 1e-5f);
 }
 
+// DX7 banks (model/FmBank.h): what a .syx file can hold, and what's refused.
+void test_fm_bank_files() {
+  const uint8_t* builtin = plaits::fm_patches_table[0];
+  const std::vector<uint8_t> dump = twill::make_fm_bank_sysex(builtin);
+  CHECK(dump.size() == 4104 && dump.front() == 0xF0 && dump.back() == 0xF7);
+  std::vector<uint8_t> bank;
+  std::string err, warning;
+  CHECK_MSG(twill::parse_fm_bank(dump.data(), dump.size(), bank, err, &warning), "%s", err.c_str());
+  CHECK(bank.size() == size_t(twill::kFmBankBytes) && std::memcmp(bank.data(), builtin, bank.size()) == 0);
+  CHECK(warning.empty());
+  // Another message before the bank (an identity request, say): the bank is still found.
+  std::vector<uint8_t> more = {0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7};
+  more.insert(more.end(), dump.begin(), dump.end());
+  bank.clear();
+  CHECK(twill::parse_fm_bank(more.data(), more.size(), bank, err) && bank.size() == size_t(twill::kFmBankBytes));
+  // The voices without their SysEx.
+  CHECK(twill::parse_fm_bank(builtin, size_t(twill::kFmBankBytes), bank, err) &&
+        std::memcmp(bank.data(), builtin, bank.size()) == 0);
+  // A wrong checksum loads, with a warning.
+  std::vector<uint8_t> bad = dump;
+  bad[4102] ^= 1;
+  CHECK(twill::parse_fm_bank(bad.data(), bad.size(), bank, err, &warning) && !warning.empty());
+  // A single voice, and anything else, are refused with a reason.
+  std::vector<uint8_t> single = {0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B};
+  single.resize(163, 0);
+  single.back() = 0xF7;
+  err.clear();
+  CHECK(!twill::parse_fm_bank(single.data(), single.size(), bank, err) && err.find("single voice") != std::string::npos);
+  std::vector<uint8_t> junk(100, 0x42);
+  err.clear();
+  CHECK(!twill::parse_fm_bank(junk.data(), junk.size(), bank, err) && !err.empty());
+  CHECK(!twill::parse_fm_bank(nullptr, 0, bank, err));
+  CHECK(twill::is_fm_bank_file("Rhodes.SYX") && twill::is_fm_bank_file("b.syx") && !twill::is_fm_bank_file("b.wav"));
+  // Names: 10 characters at the end of each voice, trimmed.
+  for (int i = 0; i < twill::kFmBankVoices; ++i) {
+    const std::string name = twill::fm_voice_name(builtin, i);
+    CHECK_MSG(!name.empty() && name.size() <= 10 && name.back() != ' ', "voice %d: '%s'", i, name.c_str());
+  }
+  CHECK(twill::fm_voice_name(builtin, 32).empty() && twill::fm_voice_name(nullptr, 0).empty());
+}
+
+// A six-op FM engine plays a bank it's given exactly as it plays its own: engine 2 (bank 1) given
+// bank 2's voices sounds the same, sample for sample, as engine 3 (bank 2).
+void test_fm_bank_plays() {
+  auto play = [](int engine, const uint8_t* bank, const uint8_t* later_bank) {
+    twill::PlaitsVoice::seed_random(1);
+    twill::PlaitsVoice v;
+    twill::MacroParams p;
+    p.engine = engine;
+    p.note = 60;
+    p.harmonics = 0.3f;  // patch 10
+    p.fm_bank = bank;
+    v.note_on();
+    std::vector<float> out(9600);
+    v.render(p, out.data(), nullptr, 4800);
+    p.fm_bank = later_bank;  // changed while the note sounds
+    v.render(p, out.data() + 4800, nullptr, 4800);
+    return out;
+  };
+  const uint8_t* bank2 = plaits::fm_patches_table[1];
+  const std::vector<float> loaded = play(2, bank2, bank2), own = play(3, nullptr, nullptr),
+                           builtin = play(2, nullptr, nullptr);
+  float peak = 0;
+  for (float s : own) peak = std::max(peak, std::fabs(s));
+  CHECK_MSG(peak > 0.01f, "peak %.4f", peak);
+  CHECK(loaded == own);
+  CHECK(builtin != own);  // so the comparison above means something
+  // Going back to the built-in bank mid-note: still sounds, and no longer as bank 2.
+  const std::vector<float> back = play(2, bank2, nullptr);
+  CHECK(std::equal(back.begin(), back.begin() + 4800, own.begin()));
+  float tail = 0;
+  for (size_t i = 4800; i < back.size(); ++i) tail = std::max(tail, std::fabs(back[i]));
+  CHECK(std::isfinite(tail));
+}
+
+// A track's bank file: in the snapshot (macro tracks only), in renders, in the project file, and
+// in undo's comparison; Harmonics names the patch it picks.
+void test_fm_bank_track() {
+  const uint8_t* bank2 = plaits::fm_patches_table[1];
+  auto snapshot = [&](const twill::Project& p) {
+    return twill::build_snapshot(p, 16, 1, nullptr, nullptr
+#if TWILL_PLUGINS
+                                 , nullptr
+#endif
+                                 , [&](const std::string& path) -> const uint8_t* {
+                                   return path == "banks/two.syx" ? bank2 : nullptr;
+                                 });
+  };
+  auto play = [&](const twill::Project& p) {
+    twill::Engine e(16);
+    e.submit(snapshot(p));
+    e.play();
+    std::vector<float> out(size_t(0.5f * kRate) * 2);
+    for (size_t pos = 0; pos < out.size() / 2; pos += 256) e.render(&out[pos * 2], 256);
+    return out;
+  };
+  twill::Project p = make_project(2);
+  p.clips[0].notes = {note_at(0, 60, Q)};
+  p.tracks[0].macro.engine = 2;
+  p.tracks[0].macro.harmonics = 0.3f;
+  p.tracks[0].fm_bank = "banks/two.syx";
+  p.tracks[1].instrument = twill::InstrumentType::Sampler;
+  p.tracks[1].fm_bank = "banks/two.syx";  // kept, but only a macro track plays it
+  auto snap = snapshot(p);
+  CHECK(snap->tracks[0].fm_bank == bank2 && snap->tracks[1].fm_bank == nullptr);
+  twill::Project same = p;
+  same.tracks[0].macro.engine = 3;
+  same.tracks[0].fm_bank.clear();
+  CHECK(play(p) == play(same));
+  twill::Project missing = p;
+  missing.tracks[0].fm_bank = "banks/gone.syx";  // can't be read: the built-in bank plays
+  twill::Project builtin = p;
+  builtin.tracks[0].fm_bank.clear();
+  CHECK(play(missing) == play(builtin));
+
+  // The file keeps it, in a chunk of its own; a track without one writes none.
+  std::vector<uint8_t> bytes = twill::save_project(p);
+  twill::Project q;
+  std::string err;
+  CHECK_MSG(twill::load_project(bytes.data(), bytes.size(), q, err), "%s", err.c_str());
+  CHECK(q == p && q.tracks[0].fm_bank == "banks/two.syx");
+  const std::vector<uint8_t> plain = twill::save_project(builtin);
+  const char* tag = "FMBK";
+  CHECK(std::search(bytes.begin(), bytes.end(), tag, tag + 4) != bytes.end());
+  CHECK(std::search(plain.begin(), plain.end(), tag, tag + 4) != plain.end());  // track 1 still has one
+  twill::Project none = make_project(1);
+  const std::vector<uint8_t> none_bytes = twill::save_project(none);
+  CHECK(std::search(none_bytes.begin(), none_bytes.end(), tag, tag + 4) == none_bytes.end());
+  CHECK(!(builtin == p));  // an edit undo can see
+
+  // Harmonics on a six-op engine picks one of 32 patches, and steps by patch.
+  twill::Track t;
+  t.macro.engine = 4;
+  CHECK(twill::format_track_param(t, twill::kParamHarmonics, 0) == "Patch 1");
+  CHECK(twill::format_track_param(t, twill::kParamHarmonics, 1) == "Patch 32");
+  const float v = twill::step_track_param(t, twill::kParamHarmonics, 0, 1, false, 0.01f);
+  CHECK_MSG(twill::format_track_param(t, twill::kParamHarmonics, v) == "Patch 2", "%s",
+            twill::format_track_param(t, twill::kParamHarmonics, v).c_str());
+  t.macro.harmonics = 0.3f;
+  CHECK(twill::fm_patch_index(t) == 9);
+  t.macro.engine = 8;
+  CHECK(twill::fm_patch_index(t) == -1);
+}
+
+// The app reads a bank file once, and says why it can't.
+void test_app_fm_bank() {
+  UiDriver ui;
+  ui.platform.write_file("banks/b.syx", twill::make_fm_bank_sysex(plaits::fm_patches_table[2]));
+  std::vector<uint8_t> single = {0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B};
+  single.resize(163, 0);
+  ui.platform.write_file("banks/one.syx", single);
+  std::string err;
+  const uint8_t* b = ui.app.load_fm_bank("banks/b.syx", &err);
+  CHECK_MSG(b && std::memcmp(b, plaits::fm_patches_table[2], size_t(twill::kFmBankBytes)) == 0, "%s", err.c_str());
+  CHECK(ui.app.load_fm_bank("banks/b.syx") == b);  // read once
+  err.clear();
+  CHECK(!ui.app.load_fm_bank("banks/one.syx", &err) && err.find("single voice") != std::string::npos);
+  err.clear();
+  CHECK(!ui.app.load_fm_bank("banks/nothing.syx", &err) && !err.empty());
+}
+
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.
 void test_ui_settings_order() {
   UiDriver ui;
@@ -3777,6 +3940,10 @@ int main(int argc, char** argv) {
       {"multisample_loop_crossfade", test_multisample_loop_crossfade},
       {"ui_browser_bundles", test_ui_browser_bundles},
       {"stepped_param_names", test_stepped_param_names},
+      {"fm_bank_files", test_fm_bank_files},
+      {"fm_bank_plays", test_fm_bank_plays},
+      {"fm_bank_track", test_fm_bank_track},
+      {"app_fm_bank", test_app_fm_bank},
       {"ui_undo_delete_select_first", test_ui_undo_delete_select_first},
       {"ui_arrangement_steps_over_clips", test_ui_arrangement_steps_over_clips},
       {"ui_chiptune_preview_ends", test_ui_chiptune_preview_ends},

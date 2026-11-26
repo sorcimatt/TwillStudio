@@ -73,6 +73,7 @@ void Voice::Init(BufferAllocator* allocator) {
   engine_quantizer_.Init(engines_.size(), 0.05f, true);
   previous_engine_index_ = -1;
   reload_user_data_ = false;
+  user_fm_bank_ = NULL;  // Twill Studio
   engine_cv_ = 0.0f;
   
   out_post_processor_.Init();
@@ -129,7 +130,8 @@ void Voice::Render(
     UserData user_data;
     const uint8_t* data = user_data.ptr(engine_index);
     if (!data && engine_index >= 2 && engine_index <= 4) {
-      data = fm_patches_table[engine_index - 2];
+      // Twill Studio: a bank loaded from a file, else the built-in one.
+      data = user_fm_bank_ ? user_fm_bank_ : fm_patches_table[engine_index - 2];
     }
     e->LoadUserData(data);
     e->Reset();
