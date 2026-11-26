@@ -2836,7 +2836,8 @@ void test_fm_bank_track() {
     e.submit(snapshot(p));
     e.play();
     std::vector<float> out(size_t(0.5f * kRate) * 2);
-    for (size_t pos = 0; pos < out.size() / 2; pos += 256) e.render(&out[pos * 2], 256);
+    for (size_t pos = 0; pos < out.size() / 2; pos += 256)
+      e.render(&out[pos * 2], int(std::min<size_t>(256, out.size() / 2 - pos)));
     return out;
   };
   twill::Project p = make_project(2);
