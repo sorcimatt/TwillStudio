@@ -45,7 +45,11 @@ class InstrumentView {
     std::function<void()> press;                // A; null if A does nothing here
     std::function<void()> reset;                // B; null if nothing to reset
     ParamId param = kParamNone;                 // the setting it changes, if it's one
+    // What the row is for, shown under the picture while it's selected. Buttons in braces ("{A}")
+    // are drawn as the player's buttons or keys (App::key_name).
+    std::string help;
   };
+  void draw_help(Canvas& c, const Rect& r, const std::string& help);
   std::vector<Row> rows();
   Row param_row(ParamId id, const char* label = nullptr);
   enum class Browse { Samples, Presets, FmBanks };  // what the file browser lists besides folders

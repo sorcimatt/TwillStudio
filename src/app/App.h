@@ -149,6 +149,10 @@ class App {
   // The name shown for a track's sound: sound_name(), or "6-op FM: <file>" for one entry standing for
   // the three six-op FM engines when the track plays a DX7 bank file.
   static std::string sound_label(const Track& t);
+  // Buttons as named on screen ("A", "Sel+X", "R+Up/Down"): the handheld's names, or the computer
+  // keys that stand for them while the player uses a keyboard (A -> X, B -> Z, X -> S, Y -> A, ...).
+  std::string key_name(const std::string& buttons) const;
+  bool keyboard_labels() const { return keyboard_labels_; }
   void step_sound(int track, int step);  // one undo step; plays a note to hear it
   void invalidate(const Rect& r);
   void invalidate_all();
@@ -309,6 +313,7 @@ class App {
   void draw_name_edit(Canvas& c);
 
   Platform& p_;
+  bool keyboard_labels_ = false;  // key_name() names keys: p_.keyboard_labels() as of this frame
   Theme theme_;
   Project project_;
   EditHistory history_{project_};

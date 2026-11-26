@@ -109,6 +109,8 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
     return App::sound_index(app.project().tracks[size_t(track)]) / float(App::kNumSounds - 1);
   };
   inst.adjust = [&app, track](int step, bool) { app.step_sound(track, step); };
+  inst.help = "What makes the sound. {Left}/{Right}: the next synth engine (24 of them), then Sampler and MIDI "
+              "out. The 6-op FM engines play DX7 sounds.";
   out.push_back(inst);
 
 #if TWILL_PLUGINS
@@ -211,7 +213,7 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
       bank.label = "Bank";
       bank.value = [&app, track] {
         const std::string& b = app.project().tracks[size_t(track)].fm_bank;
-        if (b.empty()) return std::string("Built-in (A: load .syx)");
+        if (b.empty()) return "Built-in (" + app.key_name("A") + ": load .syx)";
         const std::string name = fm_bank_title(b);
         return app.load_fm_bank(b) ? name : name + " (missing)";
       };
@@ -220,6 +222,8 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
                      app.project().tracks[size_t(track)].fm_bank, Browse::FmBanks);
       };
       bank.reset = [change] { change([](Track& tr) { tr.fm_bank.clear(); }); };
+      bank.help = "A bank is a file of 32 DX7 sounds (.syx). {A}: choose one, e.g. in Categories or Dexed. "
+                  "{B}: back to the built-in sounds. Then pick a sound with Patch.";
       out.push_back(bank);
     }
     for (ParamId id : {kParamHarmonics, kParamTimbre, kParamMorph, kParamFmAmount, kParamTimbreAmount,
@@ -237,6 +241,13 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
           const std::string name = fm_voice_name(b, i);
           return std::to_string(i + 1) + (name.empty() ? std::string() : "  " + name);
         };
+        // Each step plays a note at once, so the new sound is heard without playing the song.
+        row.adjust = [this, &app, track, adjust = row.adjust](int step, bool coarse) {
+          adjust(step, coarse);
+          app.audition(track, audition_note());
+        };
+        row.help = "One of the bank's 32 sounds. {Left}/{Right}: the next one; you hear it at once. "
+                   "{Y}: hear it again.";
       }
       out.push_back(row);
     }
@@ -862,6 +873,54 @@ void InstrumentView::draw(Canvas& c) {
       const char* msg = t.sampler.sample.empty() ? "No sample yet" : "Sample not found";
       c.text(sm, pic.x + (pic.w - sm.measure(msg)) / 2, pic.y + pic.h / 2, msg, th.text_secondary);
     }
+  }
+  if (sel_ >= 0 && sel_ < int(list.size()) && !list[size_t(sel_)].help.empty()) draw_help(c, pic, list[size_t(sel_)].help);
+}
+
+// The selected row's help, in a band across the bottom of the picture, wrapped to its width.
+void InstrumentView::draw_help(Canvas& c, const Rect& r, const std::string& help) {
+  const Theme& th = app_.theme();
+  const Font& f = Font::get(FontFace::Regular, app_.u(kSmall + 1));
+  // {A}-style buttons as the player's buttons or keys.
+  std::string text;
+  for (size_t i = 0; i < help.size(); ++i) {
+    const size_t close = help[i] == '{' ? help.find('}', i) : std::string::npos;
+    if (close == std::string::npos) {
+      text += help[i];
+      continue;
+    }
+    text += app_.key_name(help.substr(i + 1, close - i - 1));
+    i = close;
+  }
+  const float pad = app_.u(10), width = float(r.w) - 2 * pad;
+  std::vector<std::string> lines;
+  std::string line, word;
+  auto place = [&] {
+    if (word.empty()) return;
+    const std::string with = line.empty() ? word : line + " " + word;
+    if (!line.empty() && f.measure(with.c_str()) > width) {
+      lines.push_back(line);
+      line = word;
+    } else {
+      line = with;
+    }
+    word.clear();
+  };
+  for (char ch : text) {
+    if (ch == ' ') place();
+    else word += ch;
+  }
+  place();
+  if (!line.empty()) lines.push_back(line);
+  const int line_h = int(app_.u(kSmall + 6));
+  const int band_h = int(lines.size()) * line_h + int(2 * pad);
+  Rect band{r.x, r.bottom() - band_h, r.w, band_h};
+  c.fill(band, th.background);
+  c.fill(Rect{band.x + int(pad), band.y, band.w - int(2 * pad), std::max(1, int(app_.u(1)))}, th.grid_bar);
+  int y = band.y + int(pad) + line_h - int(app_.u(4));
+  for (const std::string& l : lines) {
+    c.text(f, r.x + pad, y, l.c_str(), th.text_secondary);
+    y += line_h;
   }
 }
 

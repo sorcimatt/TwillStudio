@@ -58,6 +58,7 @@ class Sdl2Platform : public Platform {
   void keep_awake(bool on) override;
   bool prefers_long_audio_buffer() const override;
   bool can_quit() const override;
+  bool keyboard_labels() const override { return !handheld_ && keyboard_last_; }
   bool select_start_quits() const override;
   // Where the system sleeps without stopping programs (TWILL_SLEEP_FILE, muOS): the sound and the
   // app stop until it wakes, or asks the app to quit. Called between frames.
@@ -84,6 +85,7 @@ class Sdl2Platform : public Platform {
   const char* name_ = "SDL2";
   std::string data_dir_;  // ends with a slash
   bool handheld_ = false;
+  bool keyboard_last_ = true;  // the last button pressed was a key (else a game controller's)
   size_t sample_budget_ = 0;
 
  private:

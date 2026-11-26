@@ -463,6 +463,7 @@ void App::free_unused_samples() {
 }
 
 void App::audition(int track, int pitch) {
+  sync_engine();  // a change made just before (a new patch, say) is in the note
   if (!engine_->playing()) engine_->audition(track, uint8_t(std::max(0, std::min(127, pitch))), 0.3f);
 }
 
@@ -596,6 +597,7 @@ void App::open_controls() {
     if (p_.menu_quits() && label == "Sel + X, or Menu") label = "Sel + X";
     if (p_.menu_quits() && label == "Menu + Start") label = "Menu", value = "quit, sleep";
     else if (p_.select_start_quits() && label == "Menu + Start") label = "Sel + Start";
+    if (!value.empty()) label = key_name(label);  // on a keyboard: the keys
     InspectorField field{label, [value] { return value; }, nullptr};
     field.heading = value.empty();
     field.buttons = !field.heading;
@@ -1426,6 +1428,11 @@ bool App::frame(const InputState& state, Canvas& canvas) {
   input_.update(state.held, now);
   if (state.quit_requested) quit_ = true;
   if (canvas.width() != size_.w || canvas.height() != size_.h) layout(canvas);
+  // Keyboard or game controller: everything that names a button is drawn again in the other's terms.
+  if (p_.keyboard_labels() != keyboard_labels_) {
+    keyboard_labels_ = p_.keyboard_labels();
+    invalidate_all();
+  }
   // Twice a second: the audio load's peak into the last 3 s, and a live panel redrawn to show it.
   if (now - live_redraw_us_ >= 500000) {
     live_redraw_us_ = now;
@@ -1769,8 +1776,16 @@ void App::draw_top_bar(Canvas& c) {
     c.fill_rounded(Rect{int(x_right), mid - d / 2, d, d}, d / 2.0f, theme_.cursor);
   }
 
-  // View tabs: the current one an ink block.
+  // View tabs: the current one an ink block, between the buttons that step through them (L2 and
+  // R2, keys 1 and 2), so the way to the other views is on screen.
   float x = r.x + u(6);
+  const Font& kf = Font::get(FontFace::CondensedBold, u(kHintText));
+  const int cap_h = r.h - int(u(14)), cap_y = mid - cap_h / 2;
+  auto view_key = [&](const char* button) {
+    const std::string k = caps(key_name(button));
+    x += draw_keycap(c, kf, int(x), cap_y, cap_h, k.c_str(), theme_.text_secondary, theme_.header, false, u(1)) + u(3);
+  };
+  view_key("L2");
   for (View v : {View::Arrangement, View::PianoRoll, View::Instrument, View::Mixer}) {
     const char* name = v == View::Arrangement ? "ARRANGE" : v == View::PianoRoll ? "ROLL" : v == View::Instrument ? "SOUND" : "MIX";
     const float w = fb.measure(name) + u(14);
@@ -1782,6 +1797,8 @@ void App::draw_top_bar(Canvas& c) {
     }
     x += w + u(2);
   }
+  x += u(1);
+  view_key("R2");
 
   // Current track: colour swatch, name, and engine if there's room.
   x += u(12);
@@ -1801,6 +1818,37 @@ void App::draw_top_bar(Canvas& c) {
     if (x + u(8) + fs.measure(engine.c_str(), sp) < x_right - gap)
       c.text(fs, x + u(8), base, engine.c_str(), theme_.text_secondary, sp);
   }
+}
+
+std::string App::key_name(const std::string& buttons) const {
+  if (!keyboard_labels_) return buttons;
+  // As Sdl2Platform maps the keyboard; "Sel" and "L"/"R" are the hints' short forms.
+  static const struct { const char* button; const char* key; } kNames[] = {
+      {"a", "X"},  {"b", "Z"},  {"x", "S"},  {"y", "A"},  {"l", "Q"},          {"r", "W"},        {"l1", "Q"},
+      {"r1", "W"}, {"l2", "1"}, {"r2", "2"}, {"start", "Enter"}, {"select", "Tab"}, {"sel", "Tab"}, {"menu", "Esc"},
+      {"d-pad", "Arrows"}};
+  std::string out, word;
+  auto flush = [&] {
+    std::string lower;
+    for (char ch : word) lower += char(std::tolower(static_cast<unsigned char>(ch)));
+    for (const auto& n : kNames)
+      if (lower == n.button) {
+        word = n.key;
+        break;
+      }
+    out += word;
+    word.clear();
+  };
+  for (char ch : buttons) {
+    if (ch == '+' || ch == '/' || ch == ' ' || ch == ':' || ch == ',') {
+      flush();
+      out += ch;
+    } else {
+      word += ch;
+    }
+  }
+  flush();
+  return out;
 }
 
 void App::draw_hint_bar(Canvas& c) {
@@ -1861,7 +1909,7 @@ void App::draw_hint_bar(Canvas& c) {
   float x = r.x + u(7);
   const int cap_y = r.y + int(u(5)), cap_h = r.h - int(u(10));
   for (const Hint& h : hints) {
-    const std::string keys = caps(h.keys), action = caps(h.action);
+    const std::string keys = caps(key_name(h.keys)), action = caps(h.action);
     const int kw = keycap_width(fb, keys.c_str(), u(1));
     const float w = kw + u(5) + fs.measure(action.c_str(), sp);
     if (x + w > limit) break;

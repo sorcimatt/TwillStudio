@@ -2929,6 +2929,8 @@ void test_app_fm_bank() {
   CHECK(engine() == 2 && label() == "6-op FM bank 1");
   ui.app.step_sound(0, 1);
   CHECK(engine() == 3 && label() == "6-op FM bank 2");
+  // On a handheld (and in tests) buttons keep their own names.
+  CHECK(!ui.app.keyboard_labels() && ui.app.key_name("Sel+X") == "Sel+X" && ui.app.key_name("A") == "A");
 }
 
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.

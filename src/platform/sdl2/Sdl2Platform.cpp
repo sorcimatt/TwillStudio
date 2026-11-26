@@ -426,11 +426,15 @@ void Sdl2Platform::poll_input(InputState& out) {
       case SDL_KEYUP:
         for (const KeyBinding& k : kKeys)
           if (k.key == e.key.keysym.sym) {
-            if (e.type == SDL_KEYDOWN) keys_ |= k.button;
+            if (e.type == SDL_KEYDOWN) keys_ |= k.button, keyboard_last_ = true;
             else keys_ &= ~k.button;
           }
         break;
+      case SDL_CONTROLLERBUTTONDOWN:  // (not stick motion: a resting stick's noise would flip it)
+        keyboard_last_ = false;
+        break;
       case SDL_JOYBUTTONDOWN:
+        keyboard_last_ = false;
         // A record of raw button numbers, for mapping a new device from its log.
         if (handheld_ && raw_presses_logged_ < 64) {
           ++raw_presses_logged_;

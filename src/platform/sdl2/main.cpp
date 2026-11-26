@@ -144,9 +144,13 @@ int main(int, char**) {
     platform.present(canvas.pixels(), canvas.stride(), {twill::Rect{0, 0, canvas.width(), canvas.height()}});
     SDL_Delay(16);
   }
-  // Test hook: TWILL_VIEW=roll starts in the piano roll.
-  if (const char* v = std::getenv("TWILL_VIEW"))
-    if (std::string(v) == "roll") app.show(twill::App::View::PianoRoll);
+  // Test hook: TWILL_VIEW=roll (or sound, mix) starts in that view.
+  if (const char* v = std::getenv("TWILL_VIEW")) {
+    const std::string view = v;
+    if (view == "roll") app.show(twill::App::View::PianoRoll);
+    if (view == "sound") app.show(twill::App::View::Instrument);
+    if (view == "mix") app.show(twill::App::View::Mixer);
+  }
 
   Loop loop(platform, app, canvas, screenshot);
   for (;;) {

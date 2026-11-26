@@ -67,6 +67,9 @@ class Platform {
   // Input.
   virtual void poll_input(InputState& out) = 0;
   virtual const char* controller_name() const = 0;
+  // True while the buttons come from a computer keyboard (the last button pressed was a key), so
+  // on-screen hints should name keys rather than the handheld's buttons. Never on a handheld.
+  virtual bool keyboard_labels() const { return false; }
 
   // Files. A path is relative to the app's data folder unless it starts with '/'. write_file
   // replaces the file whole or not at all.
