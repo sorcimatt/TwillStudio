@@ -2903,6 +2903,32 @@ void test_app_fm_bank() {
   CHECK(!ui.app.load_fm_bank("banks/one.syx", &err) && err.find("single voice") != std::string::npos);
   err.clear();
   CHECK(!ui.app.load_fm_bank("banks/nothing.syx", &err) && !err.empty());
+
+  // With a bank file, the three six-op engines are one entry, named after the file.
+  CHECK(twill::fm_bank_title("banks/My Bank.v2.syx") == "My Bank.v2" && twill::fm_bank_title("x") == "x");
+  twill::Track t = ui.app.project().tracks[0];
+  t.instrument = twill::InstrumentType::Macro;
+  t.macro.engine = 3;
+  t.fm_bank = "banks/b.syx";
+  ui.app.history().change_track(0, t);
+  auto engine = [&] { return ui.app.project().tracks[0].macro.engine; };
+  auto label = [&] { return twill::App::sound_label(ui.app.project().tracks[0]); };
+  CHECK_MSG(label() == "6-op FM: b", "%s", label().c_str());
+  ui.app.step_sound(0, 1);
+  CHECK_MSG(engine() == 5 && label() == "Wave terrain", "%d %s", engine(), label().c_str());
+  ui.app.step_sound(0, -1);
+  CHECK(engine() == 4 && label() == "6-op FM: b");
+  ui.app.step_sound(0, -1);
+  CHECK_MSG(engine() == 1 && label() == "Phase distortion", "%d %s", engine(), label().c_str());
+  CHECK(ui.app.project().tracks[0].fm_bank == "banks/b.syx");  // kept for coming back
+  // Without a file, each built-in bank is an entry of its own.
+  t = ui.app.project().tracks[0];
+  t.fm_bank.clear();
+  ui.app.history().change_track(0, t);
+  ui.app.step_sound(0, 1);
+  CHECK(engine() == 2 && label() == "6-op FM bank 1");
+  ui.app.step_sound(0, 1);
+  CHECK(engine() == 3 && label() == "6-op FM bank 2");
 }
 
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.

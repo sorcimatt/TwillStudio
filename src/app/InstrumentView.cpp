@@ -104,7 +104,7 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
 
   Row inst;
   inst.label = "Engine";  // the synth's engines, then Sampler, then MIDI out
-  inst.value = [&app, track] { return std::string(App::sound_name(app.project().tracks[size_t(track)])); };
+  inst.value = [&app, track] { return App::sound_label(app.project().tracks[size_t(track)]); };
   inst.fraction = [&app, track] {
     return App::sound_index(app.project().tracks[size_t(track)]) / float(App::kNumSounds - 1);
   };
@@ -212,8 +212,7 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
       bank.value = [&app, track] {
         const std::string& b = app.project().tracks[size_t(track)].fm_bank;
         if (b.empty()) return std::string("Built-in (A: load .syx)");
-        std::string name = file_name(b);
-        name = name.substr(0, name.find_last_of('.'));
+        const std::string name = fm_bank_title(b);
         return app.load_fm_bank(b) ? name : name + " (missing)";
       };
       bank.press = [this, &app, track, change] {

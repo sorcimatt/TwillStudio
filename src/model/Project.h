@@ -107,6 +107,9 @@ std::string format_param(ParamId id, float value);
 std::string format_track_param(const Track& t, ParamId id, float value);
 // The patch a six-op FM track's Harmonics picks in its bank (0-31), or -1 on any other engine.
 int fm_patch_index(const Track& t);
+// Whether a track plays a DX7 bank file: a macro track on a six-op FM engine with fm_bank set. The
+// file then replaces all three six-op engines' banks, so the engine list shows them as one entry.
+bool plays_fm_bank_file(const Track& t);
 // One press of a control from `value`: to the middle of the next step where the engine reads the
 // setting in steps, else by `fine` of the range (ten times that when coarse), or by 1 (4, or 12 for
 // the root note, when coarse) for a whole-number setting. Kept in range.

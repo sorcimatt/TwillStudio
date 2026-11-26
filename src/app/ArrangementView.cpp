@@ -97,7 +97,7 @@ void ArrangementView::open_track_settings(int track, int select_row) {
   fields.push_back({"Name", [&app, track] { return app.project().tracks[size_t(track)].name; },
                     [&app, track](int step, bool) { app.step_track_name(track, step); },
                     [&app, track] { app.edit_track_name(track); }});
-  fields.push_back({"Engine", [&app, track] { return std::string(App::sound_name(app.project().tracks[size_t(track)])); },
+  fields.push_back({"Engine", [&app, track] { return App::sound_label(app.project().tracks[size_t(track)]); },
                     [this, &app, track, instrument](int step, bool) {
                       app.step_sound(track, step);
                       // Past the synth engines to the sampler (or back): its settings differ.
@@ -498,7 +498,7 @@ void ArrangementView::draw(Canvas& c) {
     const int nb = y + int(app_.u(kNameBaseline));
     c.text(name_f, name_x, nb, name.c_str(), tr.mute ? th.text_secondary : th.text);
     if (badge[0]) c.text(name_f, header.right() - app_.u(8) - name_f.measure(badge), nb, badge, tr.solo ? th.cursor : th.text_secondary);
-    std::string engine = caps(App::sound_name(tr));
+    std::string engine = caps(App::sound_label(tr));
     while (engine.size() > 1 && small.measure(engine.c_str(), sp) > header.right() - app_.u(6) - name_x) engine.pop_back();
     c.text(small, name_x, y + int(app_.u(kEngineBaseline)), engine.c_str(), th.text_secondary, sp);
     c.hline(header.x, header.right(), y + l.row_h - 1, th.divider);

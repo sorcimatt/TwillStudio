@@ -1213,15 +1213,23 @@ const char* App::sound_name(const Track& t) {
   return "?";
 }
 
+std::string App::sound_label(const Track& t) {
+  if (plays_fm_bank_file(t)) return "6-op FM: " + fm_bank_title(t.fm_bank);
+  return sound_name(t);
+}
+
 void App::step_sound(int track, int step) {
   if (track < 0 || track >= int(project_.tracks.size())) return;
   Track t = project_.tracks[size_t(track)];
+  // With a bank file the three six-op engines are one entry (they all play the file): step on from
+  // its last engine going forward, from its first going back.
+  const int from = plays_fm_bank_file(t) ? (step > 0 ? 4 : 2) : sound_index(t);
 #if TWILL_PLUGINS
-  int i = (sound_index(t) + step + kNumSounds) % kNumSounds;
+  int i = (from + step + kNumSounds) % kNumSounds;
   // Plugin only where the platform hosts any: passed over otherwise.
   if (i == PlaitsVoice::kNumEngines + 2 && !p_.plugins()) i = (i + (step < 0 ? -1 : 1) + kNumSounds) % kNumSounds;
 #else
-  const int i = (sound_index(t) + step + kNumSounds) % kNumSounds;
+  const int i = (from + step + kNumSounds) % kNumSounds;
 #endif
   if (i < PlaitsVoice::kNumEngines) {
     t.instrument = InstrumentType::Macro;
@@ -1788,7 +1796,7 @@ void App::draw_top_bar(Canvas& c) {
     c.fill(Rect{int(x), mid - d / 2, d, d}, track_colour(track_));
     while (name.size() > 1 && fb.measure(name.c_str()) > room) name.pop_back();
     x = c.text(fb, x + d + u(6), base, name.c_str(), theme_.text);
-    const std::string engine = caps(sound_name(t));
+    const std::string engine = caps(sound_label(t));
     const float sp = u(kCapsSpacing);
     if (x + u(8) + fs.measure(engine.c_str(), sp) < x_right - gap)
       c.text(fs, x + u(8), base, engine.c_str(), theme_.text_secondary, sp);

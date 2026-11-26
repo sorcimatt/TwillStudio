@@ -26,6 +26,9 @@ bool parse_fm_bank(const uint8_t* data, size_t size, std::vector<uint8_t>& bank,
 // Voice `index`'s name (0-31) in a bank of kFmBankBytes, trimmed: "E.PIANO 1".
 std::string fm_voice_name(const uint8_t* bank, int index);
 
+// A bank file's name as shown: without its folder and extension ("banks/Rhodes.syx" -> "Rhodes").
+std::string fm_bank_title(const std::string& path);
+
 // A bulk dump of `bank` (kFmBankBytes), as a .syx file holds it, on MIDI channel 1.
 std::vector<uint8_t> make_fm_bank_sysex(const uint8_t* bank);
 

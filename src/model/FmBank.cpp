@@ -58,6 +58,14 @@ bool parse_fm_bank(const uint8_t* data, size_t size, std::vector<uint8_t>& bank,
   return false;
 }
 
+std::string fm_bank_title(const std::string& path) {
+  const size_t slash = path.find_last_of('/');
+  std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+  const size_t dot = name.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) name.erase(dot);
+  return name;
+}
+
 std::string fm_voice_name(const uint8_t* bank, int index) {
   if (!bank || index < 0 || index >= kFmBankVoices) return std::string();
   std::string name;

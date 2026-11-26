@@ -481,6 +481,10 @@ int fm_patch_index(const Track& t) {
   return s.count && !s.names ? s.index(t.macro.harmonics) : -1;
 }
 
+bool plays_fm_bank_file(const Track& t) {
+  return t.instrument == InstrumentType::Macro && t.macro.engine >= 2 && t.macro.engine <= 4 && !t.fm_bank.empty();
+}
+
 float step_track_param(const Track& t, ParamId id, float v, int step, bool coarse, float fine) {
   const ParamInfo* info = param_info(id);
   if (!info) return v;

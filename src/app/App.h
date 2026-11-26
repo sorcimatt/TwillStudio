@@ -146,6 +146,9 @@ class App {
 #endif
   static int sound_index(const Track& t);
   static const char* sound_name(const Track& t);
+  // The name shown for a track's sound: sound_name(), or "6-op FM: <file>" for one entry standing for
+  // the three six-op FM engines when the track plays a DX7 bank file.
+  static std::string sound_label(const Track& t);
   void step_sound(int track, int step);  // one undo step; plays a note to hear it
   void invalidate(const Rect& r);
   void invalidate_all();
