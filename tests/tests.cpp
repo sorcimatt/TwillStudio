@@ -27,6 +27,7 @@
 #include "engine/Engine.h"
 #include "engine/PlaitsVoice.h"
 #include "model/FmBank.h"
+#include "model/MidiFile.h"
 #include "model/Multisample.h"
 #include "engine/Sample.h"
 #include "plaits/resources.h"  // the six-op FM engines' built-in banks
@@ -2933,13 +2934,93 @@ void test_app_fm_bank() {
   CHECK(!ui.app.keyboard_labels() && ui.app.key_name("Sel+X") == "Sel+X" && ui.app.key_name("A") == "A");
 }
 
+// The song as a MIDI file: notes where the arrangement plays them (looped clips, offsets, cut at the
+// placement's end), one file track per Twill track with notes, tempo and time signature first.
+void test_midi_file() {
+  twill::Project p = make_project(3, 4 * Q, 8 * Q);  // 1-bar clips placed for 2 bars: each plays twice
+  p.name = "Sketch";
+  p.tempo = 90;
+  p.time_sig_num = 3;
+  p.time_sig_den = 4;
+  p.tracks[0].name = "Bass";
+  p.clips[0].notes = {note_at(0, 40, Q), note_at(3 * Q, 43, 2 * Q)};  // the second runs past the bar
+  p.tracks[1].name = "Drums";
+  p.tracks[1].instrument = twill::InstrumentType::Sampler;
+  p.tracks[1].sampler.mode = twill::SamplerMode::Kit;
+  p.clips[1].notes = {note_at(0, 36, Q / 4)};
+  p.tracks[2].name = "Empty";
+  p.clips[2].notes.clear();
+
+  std::vector<twill::SongNote> bass = twill::song_notes(p, 0);
+  CHECK_MSG(bass.size() == 4, "%zu notes", bass.size());
+  if (bass.size() == 4) {
+    CHECK(bass[0].start == 0 && bass[0].pitch == 40 && bass[0].length == Q);
+    CHECK(bass[1].start == 3 * Q && bass[1].length == 2 * Q);  // runs into the clip's next pass
+    CHECK(bass[2].start == 4 * Q && bass[3].start == 7 * Q);
+    CHECK(bass[3].length == Q);  // cut at the placement's end (8 Q)
+  }
+  // A placement starting into its clip (offset) plays from there, wrapping round.
+  twill::Project q = p;
+  q.tracks[0].arrangement[0].offset = 2 * Q;
+  q.tracks[0].arrangement[0].length = 4 * Q;
+  bass = twill::song_notes(q, 0);
+  CHECK_MSG(bass.size() == 2 && bass[0].start == Q && bass[0].pitch == 43 && bass[1].start == 2 * Q && bass[1].pitch == 40,
+            "%zu notes", bass.size());
+  CHECK(twill::midi_file_channel(p, 0) == 0 && twill::midi_file_channel(p, 1) == 9);
+
+  const std::vector<uint8_t> f = twill::make_midi_file(p);
+  auto u16 = [&](size_t i) { return (f[i] << 8) | f[i + 1]; };
+  auto u32 = [&](size_t i) { return uint32_t(u16(i)) << 16 | uint32_t(u16(i + 2)); };
+  CHECK(f.size() > 14 && std::memcmp(f.data(), "MThd", 4) == 0 && u32(4) == 6);
+  if (f.size() <= 14) return;
+  CHECK(u16(8) == 1 && u16(10) == 3 && u16(12) == int(Q));  // format 1; conductor + 2 tracks with notes
+  // Walk the tracks: the conductor's tempo (60e6 / 90 = 666667 us) and 3/4; the notes' channels and times.
+  size_t pos = 14;
+  int track = 0, tempo = 0, num = 0, ons[3] = {}, channel[3] = {-1, -1, -1};
+  uint32_t last_on[3] = {};
+  std::string names;
+  while (pos + 8 <= f.size() && track < 3) {
+    CHECK(std::memcmp(&f[pos], "MTrk", 4) == 0);
+    const size_t end = pos + 8 + u32(pos + 4);
+    size_t i = pos + 8;
+    uint32_t tick = 0;
+    while (i < end) {
+      uint32_t delta = 0;
+      do delta = (delta << 7) | (f[i] & 0x7F); while (f[i++] & 0x80);
+      tick += delta;
+      const uint8_t st = f[i++];
+      if (st == 0xFF) {
+        const uint8_t type = f[i++];
+        const uint8_t len = f[i++];
+        if (type == 0x03) names += std::string(reinterpret_cast<const char*>(&f[i]), len) + ",";
+        if (type == 0x51) tempo = (f[i] << 16) | (f[i + 1] << 8) | f[i + 2];
+        if (type == 0x58) num = f[i];
+        i += len;
+      } else {
+        if ((st & 0xF0) == 0x90) ++ons[track], last_on[track] = tick, channel[track] = st & 15;
+        i += 2;
+      }
+    }
+    pos = end;
+    ++track;
+  }
+  CHECK(track == 3 && names == "Sketch,Bass,Drums,");
+  CHECK(tempo == 666667 && num == 3);
+  CHECK(ons[1] == 4 && channel[1] == 0 && last_on[1] == uint32_t(7 * Q));
+  CHECK(ons[2] == 2 && channel[2] == 9 && last_on[2] == uint32_t(4 * Q));
+
+  // Nothing in the arrangement: no file.
+  for (auto& t : p.tracks) t.arrangement.clear();
+  CHECK(twill::make_midi_file(p).empty());
+}
+
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.
 void test_ui_settings_order() {
   UiDriver ui;
   ui.tap(twill::kMenu);
   std::string got;
   for (const twill::InspectorField& f : ui.app.inspector_fields()) got += (got.empty() ? "" : ", ") + f.label;
-  const std::string want = "Song, Name, New project, Load, Save, Render to WAV, Render stems, Music, Tempo, Key, "
+  const std::string want = "Song, Name, New project, Load, Save, Render to WAV, Render stems, Render MIDI file, Music, Tempo, Key, "
                            "Scale, MIDI, Record from MIDI, MIDI clock, MIDI devices, Settings, Theme, New song "
                            "names, Output boost, Audio buffer, Help, Controls, About, Quit Twill";
   CHECK_MSG(got == want, "%s", got.c_str());
@@ -3973,6 +4054,7 @@ int main(int argc, char** argv) {
       {"fm_bank_plays", test_fm_bank_plays},
       {"fm_bank_track", test_fm_bank_track},
       {"app_fm_bank", test_app_fm_bank},
+      {"midi_file", test_midi_file},
       {"ui_undo_delete_select_first", test_ui_undo_delete_select_first},
       {"ui_arrangement_steps_over_clips", test_ui_arrangement_steps_over_clips},
       {"ui_chiptune_preview_ends", test_ui_chiptune_preview_ends},

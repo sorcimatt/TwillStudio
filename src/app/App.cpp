@@ -19,6 +19,7 @@
 #include "Version.h"
 #include "engine/PlaitsVoice.h"
 #include "model/FmBank.h"
+#include "model/MidiFile.h"
 #include "model/ProjectFile.h"
 
 namespace twill {
@@ -660,6 +661,26 @@ void App::add_render_fields(std::vector<InspectorField>& fields) {
                       if (n > 0) message("Saved " + std::to_string(n) + " stems to renders/" + file_safe(project_.name) + " stems");
                       else message("No tracks to render");
                     }});
+  // The notes rather than the sound, for a DAW on a computer (Ableton, Cubase...).
+  fields.push_back({"Render MIDI file", [] { return std::string("press A"); }, nullptr, [this] {
+                      const std::string path = render_midi_file();
+                      if (!path.empty()) message("Saved " + path);
+                    }});
+}
+
+std::string App::render_midi_file() {
+  const std::vector<uint8_t> file = make_midi_file(project_, p_.max_tracks());
+  if (file.empty()) {
+    message("No notes in the arrangement to export");
+    return std::string();
+  }
+  p_.make_dir(kRendersFolder);
+  const std::string path = std::string(kRendersFolder) + "/" + file_safe(project_.name) + ".mid";
+  if (!p_.write_file(path.c_str(), file)) {
+    message("Couldn't write " + path);
+    return std::string();
+  }
+  return path;
 }
 
 // MIDI: recording from a keyboard, the clock, and the devices connected.

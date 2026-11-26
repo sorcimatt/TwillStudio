@@ -192,6 +192,8 @@ class App {
   // delay and reverb but none of the master section, so that they add up to the mix before it:
   // renders/<song> stems/01 Drums.wav and so on, all the same length. Returns how many it wrote.
   int render_stems();
+  // The arrangement's notes as renders/<song>.mid (model/MidiFile.h); its path, or "" (and a message).
+  std::string render_midi_file();
   std::vector<float> render_offline(const Project& song, bool master);  // the song's length + 3 s
   bool has_unsaved_changes();  // compared with its file in projects/ (true if it has none)
 
