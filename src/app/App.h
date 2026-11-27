@@ -127,6 +127,7 @@ class App {
   void toggle_recording();
   // A panel listing every button combination.
   void open_controls();
+  void open_quick_start();
   bool quit_menu_open() const { return quit_menu_; }
   std::vector<std::string> quit_menu_items() const;  // as shown, top first
   View view() const { return view_; }
@@ -149,11 +150,20 @@ class App {
   // The name shown for a track's sound: sound_name(), or "6-op FM: <file>" for one entry standing for
   // the three six-op FM engines when the track plays a DX7 bank file.
   static std::string sound_label(const Track& t);
+  // What a track sounds like, for its header and the top bar: the engine, or on a six-op FM engine
+  // the DX7 sound itself, "DX7: <bank> / <patch name>" ("DX7: Bass 1 / SOLID BASS").
+  std::string sound_summary(const Track& t);
   // Buttons as named on screen ("A", "Sel+X", "R+Up/Down"): the handheld's names, or the computer
   // keys that stand for them while the player uses a keyboard (A -> X, B -> Z, X -> S, Y -> A, ...).
   std::string key_name(const std::string& buttons) const;
   bool keyboard_labels() const { return keyboard_labels_; }
   void step_sound(int track, int step);  // one undo step; plays a note to hear it
+  // The sound one step from `from` (an index as sound_index gives), wrapping, past Plugin where
+  // the platform hosts none.
+  int next_sound(int from, int step) const;
+  // Left/Right presses on the Engine row from a track's sound to the nearest six-op FM (DX7) engine:
+  // negative to the left, positive to the right, 0 when already there.
+  int presses_to_fm(const Track& t) const;
   void invalidate(const Rect& r);
   void invalidate_all();
   Rect content_rect() const { return content_; }
@@ -171,7 +181,9 @@ class App {
   // True on the second press of the same thing within four seconds; the first shows `prompt`.
   bool confirm_twice(const char* what, const std::string& prompt);
   void ask_quit();  // the main menu's Quit Twill: on a second press
-  void message(const std::string& text);  // shown briefly in the hint bar
+  void message(const std::string& text, int seconds = 2);  // shown briefly in the hint bar
+  // After something is deleted: the message, how to get it back (Select + B), a little longer.
+  void message_undoable(const std::string& text);
   // Adds the project file actions (save, load, new, render) to a settings panel's fields.
   // The settings menu's song, export and MIDI rows.
   void add_song_fields(std::vector<InspectorField>& fields);
@@ -301,6 +313,8 @@ class App {
   bool open_audio();  // with the buffer the setting asks for; logs what the device gave
   void load_settings();
   bool auto_names_ = true;
+  bool quick_start_seen_ = false;     // settings.txt "quickstart=seen"
+  bool quick_start_pending_ = false;  // open it on the next frame (after layout)
   int boost_db_ = 0;
   uint32_t names_made_ = 0;
   void save_settings();

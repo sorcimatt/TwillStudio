@@ -239,6 +239,7 @@ void ArrangementView::open_main_menu() {
     fields.push_back({"Audio buffer", [&app] { return app.audio_buffer_text(); },
                       [&app](int, bool) { app.set_safe_audio(!app.safe_audio()); }});
   heading("Help");
+  fields.push_back({"Quick start", [] { return std::string("press A"); }, nullptr, [&app] { app.open_quick_start(); }});
   fields.push_back({"Controls", [] { return std::string("press A"); }, nullptr, [&app] { app.open_controls(); }});
   fields.push_back({"About", [] { return std::string("press A"); }, nullptr, [&app] { app.open_about(); }});
   if (app.platform().can_quit())
@@ -313,7 +314,14 @@ void ArrangementView::handle_input() {
       a_used_ = true;
     }
   }
-  if (in.released(kA)) h.end_group();
+  if (in.released(kA)) {
+    h.end_group();
+    // A tapped on a track's name: its sound, in the Sound view.
+    if (cursor_bar_ < 0 && !a_used_) {
+      app_.show(App::View::Instrument);
+      return;
+    }
+  }
 
   // B: delete; held: move along the track.
   if (in.pressed(kB)) {
@@ -342,7 +350,7 @@ void ArrangementView::handle_input() {
     if (!b_used_ && pi >= 0) {
       arr.erase(arr.begin() + pi);
       h.set_arrangement(track, arr);
-      app_.message("Clip removed");
+      app_.message_undoable("Clip removed");
     }
     h.end_group();
   }
@@ -435,7 +443,7 @@ std::vector<Hint> ArrangementView::hints() const {
                                           : std::vector<Hint>{{"Left/Right", "clip length"}, {"Y", "no repeat"}};
   if (in.held(kB)) return {{"Left/Right", "move clip"}, {"release", "delete"}};
   if (in.held(kL) || in.held(kR)) return {{"Left/Right", "zoom"}, {"Up/Down", "page"}, {"Start", "from cursor"}};
-  if (cursor_bar_ < 0) return {{"A+Left/Right", "engine"}, {"X", "track settings"}, {"Select+Right", "roll"}};
+  if (cursor_bar_ < 0) return {{"A", "sound"}, {"A+Left/Right", "engine"}, {"X", "track settings"}, {"Select+Right", "roll"}};
   if (placement_at(app_.track(), cursor_bar_) < 0) return {{"A", "new clip"}, {"X", "menu"}, {"Start", "play"}};
   return {{"A", "select"}, {"B", "delete"}, {"Y", "duplicate"}, {"X", "open"}, {"Start", "play"}};
 }
@@ -498,7 +506,7 @@ void ArrangementView::draw(Canvas& c) {
     const int nb = y + int(app_.u(kNameBaseline));
     c.text(name_f, name_x, nb, name.c_str(), tr.mute ? th.text_secondary : th.text);
     if (badge[0]) c.text(name_f, header.right() - app_.u(8) - name_f.measure(badge), nb, badge, tr.solo ? th.cursor : th.text_secondary);
-    std::string engine = caps(App::sound_label(tr));
+    std::string engine = caps(app_.sound_summary(tr));
     while (engine.size() > 1 && small.measure(engine.c_str(), sp) > header.right() - app_.u(6) - name_x) engine.pop_back();
     c.text(small, name_x, y + int(app_.u(kEngineBaseline)), engine.c_str(), th.text_secondary, sp);
     c.hline(header.x, header.right(), y + l.row_h - 1, th.divider);

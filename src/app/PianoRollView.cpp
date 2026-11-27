@@ -684,7 +684,7 @@ void PianoRollView::handle_input() {
         h.remove_note(cid, id);
         selection_.erase(std::remove(selection_.begin(), selection_.end(), id), selection_.end());
       }
-      if (ids.size() > 1) app_.message("Deleted " + std::to_string(ids.size()) + " notes");
+      if (!ids.empty()) app_.message_undoable(ids.size() > 1 ? "Deleted " + std::to_string(ids.size()) + " notes" : "Note deleted");
       moved = true;
     }
     h.end_group();

@@ -3014,6 +3014,34 @@ void test_midi_file() {
   CHECK(twill::make_midi_file(p).empty());
 }
 
+// Finding your way, round 2: A on a track's name opens its sound; the DX7 sound is named on the
+// track; the Engine row knows how far the DX7 engines are; the quick start page lists the basics.
+void test_ui_find_your_way() {
+  UiDriver ui;
+  CHECK(ui.app.view() == twill::App::View::Arrangement);
+  for (int i = 0; i < 40; ++i) ui.tap(twill::kLeft);  // to bar 1, then onto the track's name
+  ui.tap(twill::kA);
+  CHECK(ui.app.view() == twill::App::View::Instrument);
+
+  twill::Track t = ui.app.project().tracks[0];
+  t.instrument = twill::InstrumentType::Macro;
+  t.macro.engine = 8;  // Virtual analog: four to the left of "6-op FM bank 3"
+  CHECK(ui.app.presses_to_fm(t) == -4);
+  t.macro.engine = 0;  // Analog + filter: two to the right of "6-op FM bank 1"
+  CHECK(ui.app.presses_to_fm(t) == 2);
+  t.macro.engine = 3;
+  CHECK(ui.app.presses_to_fm(t) == 0);
+  t.macro.engine = 2;
+  t.macro.harmonics = 0.5f / 32 / 1.02f;  // patch 1
+  const std::string want = "DX7: bank 1 / " + twill::fm_voice_name(plaits::fm_patches_table[0], 0);
+  CHECK_MSG(ui.app.sound_summary(t) == want, "%s", ui.app.sound_summary(t).c_str());
+  t.macro.engine = 8;
+  CHECK(ui.app.sound_summary(t) == "Virtual analog");
+
+  ui.app.open_quick_start();
+  CHECK(ui.app.inspector_title() == "Quick start" && ui.app.inspector_fields().size() == 9);
+}
+
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.
 void test_ui_settings_order() {
   UiDriver ui;
@@ -3022,7 +3050,7 @@ void test_ui_settings_order() {
   for (const twill::InspectorField& f : ui.app.inspector_fields()) got += (got.empty() ? "" : ", ") + f.label;
   const std::string want = "Song, Name, New project, Load, Save, Render to WAV, Render stems, Render MIDI file, Music, Tempo, Key, "
                            "Scale, MIDI, Record from MIDI, MIDI clock, MIDI devices, Settings, Theme, New song "
-                           "names, Output boost, Audio buffer, Help, Controls, About, Quit Twill";
+                           "names, Output boost, Audio buffer, Help, Quick start, Controls, About, Quit Twill";
   CHECK_MSG(got == want, "%s", got.c_str());
   CHECK(ui.app.inspector_title() == "Main menu");
   CHECK(ui.app.inspector_fields()[size_t(ui.app.inspector_selection())].label == "Name");  // past the heading
@@ -4055,6 +4083,7 @@ int main(int argc, char** argv) {
       {"fm_bank_track", test_fm_bank_track},
       {"app_fm_bank", test_app_fm_bank},
       {"midi_file", test_midi_file},
+      {"ui_find_your_way", test_ui_find_your_way},
       {"ui_undo_delete_select_first", test_ui_undo_delete_select_first},
       {"ui_arrangement_steps_over_clips", test_ui_arrangement_steps_over_clips},
       {"ui_chiptune_preview_ends", test_ui_chiptune_preview_ends},

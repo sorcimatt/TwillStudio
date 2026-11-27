@@ -110,7 +110,11 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
   };
   inst.adjust = [&app, track](int step, bool) { app.step_sound(track, step); };
   inst.help = "What makes the sound. {Left}/{Right}: the next synth engine (24 of them), then Sampler and MIDI "
-              "out. The 6-op FM engines play DX7 sounds.";
+              "out. The 6-op FM engines play DX7 sounds";
+  if (const int n = app.presses_to_fm(t))  // and how far they are from here
+    inst.help += ": " + std::to_string(n < 0 ? -n : n) + " to the " + (n < 0 ? "left" : "right") + ".";
+  else
+    inst.help += " (this is one: choose its Bank and Patch below).";
   out.push_back(inst);
 
 #if TWILL_PLUGINS

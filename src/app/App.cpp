@@ -20,6 +20,7 @@
 #include "engine/PlaitsVoice.h"
 #include "model/FmBank.h"
 #include "model/MidiFile.h"
+#include "plaits/resources.h"  // the six-op FM engines' built-in banks, for patch names
 #include "model/ProjectFile.h"
 
 namespace twill {
@@ -65,6 +66,12 @@ bool App::start() {
   instrument_ = std::make_unique<InstrumentView>(*this);
   mixer_ = std::make_unique<MixerView>(*this);
   sync_engine();
+  // The quick start page, once: on the first start with this data folder (not in tests).
+  if (p_.real_time() && !quick_start_seen_) {
+    quick_start_seen_ = true;
+    quick_start_pending_ = true;
+    save_settings();
+  }
 
   midi_sender_ = std::make_unique<MidiSender>(*engine_, p_.midi());
   const bool ok = open_audio();
@@ -478,11 +485,13 @@ void App::listen(int track) {
 
 void App::open_track_settings(int track) { arrangement_->open_track_settings(track); }
 
-void App::message(const std::string& text) {
+void App::message(const std::string& text, int seconds) {
   message_ = text;
-  message_until_us_ = p_.micros() + 2000000;
+  message_until_us_ = p_.micros() + uint64_t(seconds) * 1000000;
   invalidate(hint_bar_);
 }
+
+void App::message_undoable(const std::string& text) { message(text + ": " + key_name("Sel+B") + " undoes", 4); }
 
 namespace {
 constexpr const char* kProjectsFolder = "projects";
@@ -555,6 +564,7 @@ void App::open_controls() {
       {"Menu + Start", "quit"},
       {"ARRANGEMENT", ""},
       {"A", "new clip / select"},
+      {"A", "on a track name: its sound"},
       {"A + Left / Right", "clip length"},
       {"B", "delete clip"},
       {"B + Left / Right", "move clip"},
@@ -567,8 +577,8 @@ void App::open_controls() {
       {"A + Up / Down", "pitch"},
       {"B", "delete note"},
       {"B + D-pad", "move notes"},
-      {"A or B + L1 + L / R", "fine"},
-      {"A or B + R1 + U / D", "octave"},
+      {"A or B + L1 + Left / Right", "fine"},
+      {"A or B + R1 + Up / Down", "octave"},
       {"Y + D-pad", "select area"},
       {"Y + A", "select all"},
       {"X", "note / clip panel"},
@@ -605,6 +615,33 @@ void App::open_controls() {
     fields.push_back(std::move(field));
   }
   open_inspector("Controls", std::move(fields));
+}
+
+// The few moves to start with, in the player's buttons or keys; shown once at the first start and
+// from Menu > Help. Labels are buttons only (key_name maps them), the words go in the values.
+void App::open_quick_start() {
+  const bool keys = keyboard_labels_;
+  // Short: the panel is narrow on the handheld.
+  const std::vector<std::pair<std::string, std::string>> rows = {
+      {"L2 / R2", "other screens"},
+      {"D-pad", "move; Up / Down: track"},
+      {"A", "on a track name: sound"},
+      {"Y", "in Sound: hear it"},
+      {"Start", "play / stop"},
+      {"Sel + B", "undo"},
+      {"Sel + A", "redo"},
+      {"Menu", "save, load, export"},
+      {"Select", keys ? "Tab key" : "small button, left"},
+  };
+  std::vector<InspectorField> fields;
+  for (const auto& r : rows) {
+    if (keys && r.first == "Select") continue;  // where Select is only matters on the handheld
+    const std::string value = r.second;
+    InspectorField field{key_name(r.first), [value] { return value; }, nullptr};
+    field.buttons = true;
+    fields.push_back(std::move(field));
+  }
+  open_inspector("Quick start", std::move(fields), "again: Menu > Help");
 }
 
 // The song: its name, and saving, loading and starting one.
@@ -1166,6 +1203,7 @@ void App::load_settings() {
     if (line == "names=untitled") auto_names_ = false;
     if (line == "audio=safe") audio_pref_ = 1;
     if (line == "audio=low") audio_pref_ = 0;
+    if (line == "quickstart=seen") quick_start_seen_ = true;
     if (line.rfind("boost=", 0) == 0) boost_db_ = std::max(0, std::min(12, std::atoi(line.c_str() + 6) / 3 * 3));
     at = end + 1;
   }
@@ -1175,7 +1213,8 @@ void App::save_settings() {
   const std::string text = std::string("theme=") + (theme_.dark ? "dark" : "light") + "\n" +
                            "names=" + (auto_names_ ? "auto" : "untitled") + "\n" +
                            (audio_pref_ < 0 ? "" : audio_pref_ ? "audio=safe\n" : "audio=low\n") +
-                           (boost_db_ ? "boost=" + std::to_string(boost_db_) + "\n" : std::string());
+                           (boost_db_ ? "boost=" + std::to_string(boost_db_) + "\n" : std::string()) +
+                           (quick_start_seen_ ? "quickstart=seen\n" : "");
   p_.write_file(kSettingsName, std::vector<uint8_t>(text.begin(), text.end()));
 }
 
@@ -1241,19 +1280,46 @@ std::string App::sound_label(const Track& t) {
   return sound_name(t);
 }
 
+std::string App::sound_summary(const Track& t) {
+  const int patch = t.instrument == InstrumentType::Macro ? fm_patch_index(t) : -1;
+  if (patch < 0) return sound_name(t);
+  const uint8_t* bank = t.fm_bank.empty() ? nullptr : load_fm_bank(t.fm_bank);
+  const std::string where = t.fm_bank.empty() ? "bank " + std::to_string(t.macro.engine - 1) : fm_bank_title(t.fm_bank);
+  if (!bank) bank = plaits::fm_patches_table[t.macro.engine - 2];
+  const std::string name = fm_voice_name(bank, patch);
+  return "DX7: " + where + " / " + (name.empty() ? "patch " + std::to_string(patch + 1) : name);
+}
+
+int App::next_sound(int from, int step) const {
+#if TWILL_PLUGINS
+  int i = (from + step + kNumSounds) % kNumSounds;
+  // Plugin only where the platform hosts any: passed over otherwise.
+  if (i == PlaitsVoice::kNumEngines + 2 && !p_.plugins()) i = (i + (step < 0 ? -1 : 1) + kNumSounds) % kNumSounds;
+  return i;
+#else
+  return (from + step + kNumSounds) % kNumSounds;
+#endif
+}
+
+int App::presses_to_fm(const Track& t) const {
+  const int from = sound_index(t);
+  if (from >= 2 && from <= 4) return 0;
+  for (int n = 1; n < kNumSounds; ++n) {
+    int left = from, right = from;
+    for (int k = 0; k < n; ++k) left = next_sound(left, -1), right = next_sound(right, 1);
+    if (left >= 2 && left <= 4) return -n;
+    if (right >= 2 && right <= 4) return n;
+  }
+  return 0;
+}
+
 void App::step_sound(int track, int step) {
   if (track < 0 || track >= int(project_.tracks.size())) return;
   Track t = project_.tracks[size_t(track)];
   // With a bank file the three six-op engines are one entry (they all play the file): step on from
   // its last engine going forward, from its first going back.
   const int from = plays_fm_bank_file(t) ? (step > 0 ? 4 : 2) : sound_index(t);
-#if TWILL_PLUGINS
-  int i = (from + step + kNumSounds) % kNumSounds;
-  // Plugin only where the platform hosts any: passed over otherwise.
-  if (i == PlaitsVoice::kNumEngines + 2 && !p_.plugins()) i = (i + (step < 0 ? -1 : 1) + kNumSounds) % kNumSounds;
-#else
-  const int i = (from + step + kNumSounds) % kNumSounds;
-#endif
+  const int i = next_sound(from, step);
   if (i < PlaitsVoice::kNumEngines) {
     t.instrument = InstrumentType::Macro;
     t.macro.engine = i;
@@ -1453,6 +1519,10 @@ bool App::frame(const InputState& state, Canvas& canvas) {
   if (p_.keyboard_labels() != keyboard_labels_) {
     keyboard_labels_ = p_.keyboard_labels();
     invalidate_all();
+  }
+  if (quick_start_pending_) {  // after the labels: it names buttons or keys
+    quick_start_pending_ = false;
+    open_quick_start();
   }
   // Twice a second: the audio load's peak into the last 3 s, and a live panel redrawn to show it.
   if (now - live_redraw_us_ >= 500000) {
@@ -1834,7 +1904,7 @@ void App::draw_top_bar(Canvas& c) {
     c.fill(Rect{int(x), mid - d / 2, d, d}, track_colour(track_));
     while (name.size() > 1 && fb.measure(name.c_str()) > room) name.pop_back();
     x = c.text(fb, x + d + u(6), base, name.c_str(), theme_.text);
-    const std::string engine = caps(sound_label(t));
+    const std::string engine = caps(sound_summary(t));
     const float sp = u(kCapsSpacing);
     if (x + u(8) + fs.measure(engine.c_str(), sp) < x_right - gap)
       c.text(fs, x + u(8), base, engine.c_str(), theme_.text_secondary, sp);
