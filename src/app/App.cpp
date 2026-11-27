@@ -1287,7 +1287,8 @@ std::string App::sound_summary(const Track& t) {
   const std::string where = t.fm_bank.empty() ? "bank " + std::to_string(t.macro.engine - 1) : fm_bank_title(t.fm_bank);
   if (!bank) bank = plaits::fm_patches_table[t.macro.engine - 2];
   const std::string name = fm_voice_name(bank, patch);
-  return "DX7: " + where + " / " + (name.empty() ? "patch " + std::to_string(patch + 1) : name);
+  // The sound first, so a narrow column still shows it.
+  return "DX7: " + (name.empty() ? "patch " + std::to_string(patch + 1) : name) + " (" + where + ")";
 }
 
 int App::next_sound(int from, int step) const {

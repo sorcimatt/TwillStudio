@@ -71,8 +71,10 @@ std::string fm_voice_name(const uint8_t* bank, int index) {
   std::string name;
   const uint8_t* n = bank + index * kFmVoiceBytes + 118;
   for (int i = 0; i < 10; ++i) {
-    const char c = char(n[i] & 0x7F);
-    name += c >= 32 && c < 127 ? c : ' ';
+    char c = char(n[i] & 0x7F);
+    if (c < 32 || c >= 127) c = ' ';
+    if (c == ' ' && !name.empty() && name.back() == ' ') continue;  // "PIPES   2" -> "PIPES 2"
+    name += c;
   }
   while (!name.empty() && name.back() == ' ') name.pop_back();
   size_t first = name.find_first_not_of(' ');

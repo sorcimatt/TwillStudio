@@ -102,6 +102,15 @@ std::vector<InstrumentView::Row> InstrumentView::rows() {
     app.history().change_track(track, copy);
   };
 
+  // The sound by name, chosen from lists by kind (the sound picker): the easy way in.
+  Row sound;
+  sound.label = "Sound";
+  sound.value = [&app, track] { return app.sound_summary(app.project().tracks[size_t(track)]); };
+  sound.press = [this] { open_picker(); };
+  sound.help = "Choose the sound from lists: DX7 sounds by kind (Bass, Piano & Keys, Pads...), the other synth "
+               "engines, the sampler or MIDI out. Each one plays as you move to it. {A}: open the lists.";
+  out.push_back(sound);
+
   Row inst;
   inst.label = "Engine";  // the synth's engines, then Sampler, then MIDI out
   inst.value = [&app, track] { return App::sound_label(app.project().tracks[size_t(track)]); };
@@ -731,9 +740,160 @@ void InstrumentView::browser_input() {
   app_.invalidate(app_.content_rect());
 }
 
+// --- Sound picker -----------------------------------------------------------------------------
+
+void InstrumentView::open_picker() {
+  picker_groups_ = sound_picker_groups(app_);
+  int g = -1, i = -1;
+  find_in_picker(picker_groups_, app_.project().tracks[size_t(app_.track())], g, i);
+  pick_group_ = std::max(0, g);  // the group the track's sound is in, selected
+  pick_item_ = -1;
+  pick_top_ = 0;
+  picker_edits_ = 0;
+  picker_open_ = true;
+  app_.invalidate_all();
+}
+
+void InstrumentView::picker_input() {
+  const InputTracker& in = app_.input();
+  App& app = app_;
+  const int track = app.track();
+  EditHistory& h = app.history();
+  auto close = [&] {
+    picker_open_ = false;
+    app.invalidate_all();
+  };
+  // The sound being tried goes back off the track: undone, if it's still the last edit.
+  auto take_back = [&] {
+    if (picker_edits_ && h.revision() == picker_revision_) h.undo();
+    picker_edits_ = 0;
+  };
+  // Tries a sound: on the track in place of the last one tried (so one undo step in all), heard.
+  auto try_sound = [&](const PickerItem& it) {
+    take_back();
+    Track t = app.project().tracks[size_t(track)];
+    apply_picker_item(t, it);
+    const uint64_t before = h.revision();
+    h.change_track(track, t);
+    if (h.revision() != before) {
+      picker_edits_ = 1;
+      picker_revision_ = h.revision();
+    }
+    if (t.instrument != InstrumentType::MidiOut) app.audition(track, audition_note());
+    app.invalidate_all();  // the top bar and track names show it too
+  };
+  // Up/Down one at a time (wrapping), ten with R held (stopping at the ends).
+  auto move = [&](int& sel, int n) {
+    const int was = sel;
+    if (n <= 0) return false;
+    if (in.held(kR)) {
+      if (in.pressed_or_repeat(kUp)) sel = std::max(0, sel - 10);
+      if (in.pressed_or_repeat(kDown)) sel = std::min(n - 1, sel + 10);
+    } else {
+      if (in.pressed_or_repeat(kUp)) sel = (sel + n - 1) % n;
+      if (in.pressed_or_repeat(kDown)) sel = (sel + 1) % n;
+    }
+    return sel != was;
+  };
+
+  if (pick_item_ < 0) {  // the groups
+    if (move(pick_group_, int(picker_groups_.size()))) pick_top_ = 0;
+    if (in.pressed(kB) || in.pressed(kX)) return close();
+    if (in.pressed(kA) && !picker_groups_.empty()) {
+      const PickerGroup& g = picker_groups_[size_t(pick_group_)];
+      if (g.items.empty()) {
+        if (g.action.kind == PickerItem::Kind::BankFiles) {
+          // Any bank file: its sounds are then on the Patch row.
+          close();
+          open_browser(
+              [&app, track](const std::string& path) {
+                Track t = app.project().tracks[size_t(track)];
+                t.instrument = InstrumentType::Macro;
+                if (t.macro.engine < 2 || t.macro.engine > 4) t.macro.engine = 2;
+                t.fm_bank = path;
+                app.history().change_track(track, t);
+              },
+              app.project().tracks[size_t(track)].fm_bank, Browse::FmBanks);
+          return;
+        }
+        try_sound(g.action);  // Sampler or MIDI out: chosen at once
+        picker_edits_ = 0;
+        return close();
+      }
+      // Into the group: at the track's sound if it's in there, else the first, tried at once.
+      int gi = -1, ii = -1;
+      find_in_picker(picker_groups_, app.project().tracks[size_t(track)], gi, ii);
+      pick_item_ = gi == pick_group_ && ii >= 0 ? ii : 0;
+      pick_top_ = 0;
+      if (gi != pick_group_ || ii < 0) try_sound(g.items[size_t(pick_item_)]);
+    }
+  } else {  // the sounds in a group
+    const PickerGroup& g = picker_groups_[size_t(pick_group_)];
+    if (move(pick_item_, int(g.items.size()))) try_sound(g.items[size_t(pick_item_)]);
+    if (in.pressed(kY)) app.audition(track, audition_note());
+    if (in.pressed(kA)) {
+      picker_edits_ = 0;  // kept
+      app.message("Sound: " + app.sound_summary(app.project().tracks[size_t(track)]));
+      return close();
+    }
+    if (in.pressed(kB)) {
+      take_back();
+      pick_item_ = -1;
+    }
+    if (in.pressed(kX)) {
+      take_back();
+      return close();
+    }
+  }
+  app.invalidate(app.content_rect());
+}
+
+void InstrumentView::draw_picker(Canvas& c, const Rect& r) {
+  const Theme& th = app_.theme();
+  const Font& f = Font::get(FontFace::Regular, app_.u(kText));
+  const Font& fb = Font::get(FontFace::SemiBold, app_.u(kText));
+  const Font& small = Font::get(FontFace::Regular, app_.u(kSmall));
+  c.fill(r, th.panel);
+  const bool items = pick_item_ >= 0 && pick_group_ < int(picker_groups_.size());
+  const std::string title = items ? "Choose a sound  >  " + picker_groups_[size_t(pick_group_)].label
+                                  : "Choose a sound: a kind, then the sound (each one plays as you reach it)";
+  c.fill(Rect{r.x, r.y, r.w, int(app_.u(24))}, th.header);
+  c.text(small, r.x + app_.u(12), r.y + int(app_.u(16)), fit_text(small, title, r.w - app_.u(24)).c_str(),
+         th.text_secondary);
+  const int row_h = int(app_.u(kRowH));
+  const int top_y = r.y + int(app_.u(28));
+  const int visible = std::max(1, (r.bottom() - top_y) / row_h);
+  const int n = items ? int(picker_groups_[size_t(pick_group_)].items.size()) : int(picker_groups_.size());
+  const int sel = items ? pick_item_ : pick_group_;
+  if (sel < pick_top_) pick_top_ = sel;
+  if (sel >= pick_top_ + visible) pick_top_ = sel - visible + 1;
+  for (int i = pick_top_; i < n && i < pick_top_ + visible; ++i) {
+    const int y = top_y + (i - pick_top_) * row_h;
+    Rect rr{r.x + int(app_.u(6)), y, r.w - int(app_.u(12)), row_h};
+    const bool on = i == sel;
+    if (on) c.fill(Rect{rr.x, rr.y + 1, rr.w, rr.h - 2}, th.chip_active);
+    const int base = f.baseline_in(y, row_h);
+    std::string label, right;
+    if (items) {
+      const PickerItem& it = picker_groups_[size_t(pick_group_)].items[size_t(i)];
+      label = it.label;
+      right = it.where;
+    } else {
+      const PickerGroup& g = picker_groups_[size_t(i)];
+      label = g.label;
+      right = g.items.empty() ? std::string() : std::to_string(g.items.size()) + (g.items.size() == 1 ? " sound" : " sounds");
+    }
+    c.text(items ? f : fb, rr.x + app_.u(10), base, label.c_str(), on ? th.chip_active_text : th.text);
+    if (!right.empty())
+      c.text(small, rr.right() - app_.u(10) - small.measure(right.c_str()), base, right.c_str(),
+             on ? th.chip_active_text : th.text_secondary);
+  }
+}
+
 // --- Input ------------------------------------------------------------------------------------
 
 void InstrumentView::handle_input() {
+  if (picker_open_) return picker_input();
   if (browser_open_) return browser_input();
 #if TWILL_PLUGINS
   if (plugins_open_) return plugins_input();
@@ -769,6 +929,9 @@ std::vector<Hint> InstrumentView::hints() const {
 #if TWILL_PLUGINS
   if (plugins_open_) return {{"Up/Down", "move"}, {"R+Up/Down", "by 10"}, {"A", "pick"}, {"B", "cancel"}};
 #endif
+  if (picker_open_ && pick_item_ < 0) return {{"Up/Down", "choose"}, {"A", "open"}, {"B", "close"}};
+  if (picker_open_)
+    return {{"Up/Down", "try the next"}, {"A", "keep it"}, {"B", "back (as before)"}, {"Y", "listen"}, {"R+Up/Down", "by 10"}};
   if (browser_open_)
     return {{"A", "open/pick"}, {"Y", "listen"}, {"B", "up a folder"}, {"X", "cancel"}, {"Left/Right", "top/end"},
             {"R+Up/Down", "by 10"}};
@@ -795,6 +958,7 @@ void InstrumentView::tick() {
 void InstrumentView::draw(Canvas& c) {
   const Theme& th = app_.theme();
   const Rect content = app_.content_rect();
+  if (picker_open_) return draw_picker(c, content);
   if (browser_open_) return draw_browser(c, content);
 #if TWILL_PLUGINS
   if (plugins_open_) return draw_plugins(c, content);

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "app/App.h"
+#include "app/SoundPicker.h"
 
 namespace twill {
 
@@ -28,10 +29,11 @@ class InstrumentView {
   void tick();  // the zone map follows the zones sounding
   void draw(Canvas& c);
   std::vector<Hint> hints() const;
+  bool picking() const { return picker_open_; }  // the sound picker is open
 #if TWILL_PLUGINS
-  bool browsing() const { return browser_open_ || plugins_open_; }
+  bool browsing() const { return browser_open_ || plugins_open_ || picker_open_; }
 #else
-  bool browsing() const { return browser_open_; }
+  bool browsing() const { return browser_open_ || picker_open_; }
 #endif
 
   // A global chord used L or R (L/R + Start): releasing it then does nothing here.
@@ -92,6 +94,17 @@ class InstrumentView {
   void draw_plugins(Canvas& c, const Rect& r);
   void draw_plugin(Canvas& c, const Rect& r, const Track& t);
 #endif
+
+  // The sound picker (the "Sound" row): groups, then the sounds in one, each heard as it's reached
+  // (app/SoundPicker.h). A keeps the sound, B goes back (to the sound it had, from a group's list).
+  bool picker_open_ = false;
+  std::vector<PickerGroup> picker_groups_;
+  int pick_group_ = 0, pick_item_ = -1, pick_top_ = 0;  // pick_item_ < 0: the list of groups
+  int picker_edits_ = 0;          // 1 while a sound being tried is on the track (one undo step)
+  uint64_t picker_revision_ = 0;  // the history's revision after that, to undo only our own step
+  void open_picker();
+  void picker_input();
+  void draw_picker(Canvas& c, const Rect& r);
 
   // Waveform overview cache.
   const SampleData* wave_for_ = nullptr;

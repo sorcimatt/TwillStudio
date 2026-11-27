@@ -28,6 +28,7 @@
 #include "engine/PlaitsVoice.h"
 #include "model/FmBank.h"
 #include "model/MidiFile.h"
+#include "app/SoundPicker.h"
 #include "model/Multisample.h"
 #include "engine/Sample.h"
 #include "plaits/resources.h"  // the six-op FM engines' built-in banks
@@ -2168,6 +2169,7 @@ void test_ui_pick_multisample() {
   ui.platform.write_file("samples/Piano/s/c4.wav", sine_wav(48000, 1));
   ui.tap(twill::kLeft, twill::kSelect);  // arrangement -> mixer
   ui.tap(twill::kLeft, twill::kSelect);  // -> sound view
+  ui.tap(twill::kDown);  // past "Sound" (the sound picker's row) to Engine
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // engine -> sampler
   ui.tap(twill::kDown);                               // mode
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // single -> slices -> kit -> multi
@@ -2361,6 +2363,7 @@ void test_ui_browser_up_a_folder() {
   UiDriver ui;
   ui.tap(twill::kLeft, twill::kSelect);  // arrangement -> mixer
   ui.tap(twill::kLeft, twill::kSelect);  // -> sound view
+  ui.tap(twill::kDown);  // past "Sound" (the sound picker's row) to Engine
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // engine -> sampler
   ui.tap(twill::kDown);  // mode
   ui.tap(twill::kDown);  // sample
@@ -2427,6 +2430,7 @@ void test_ui_browser_bundles() {
   ui.platform.write_file("samples/Libs/Museum.dsbundle/Images/bg.png", {1, 2, 3});
   ui.tap(twill::kLeft, twill::kSelect);
   ui.tap(twill::kLeft, twill::kSelect);  // sound view
+  ui.tap(twill::kDown);  // past "Sound" (the sound picker's row) to Engine
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // sampler
   ui.tap(twill::kDown);
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // Multi
@@ -2461,6 +2465,7 @@ void test_ui_browser_jumps() {
   }
   ui.tap(twill::kLeft, twill::kSelect);
   ui.tap(twill::kLeft, twill::kSelect);  // sound view
+  ui.tap(twill::kDown);  // past "Sound" (the sound picker's row) to Engine
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // sampler
   ui.tap(twill::kDown);
   ui.tap(twill::kDown);  // Sample
@@ -2495,6 +2500,7 @@ void test_ui_sound_view_kit() {
   ui.tap(twill::kLeft, twill::kSelect);  // arrangement -> mixer
   ui.tap(twill::kLeft, twill::kSelect);  // -> sound view
   CHECK(ui.app.view() == twill::App::View::Instrument);
+  ui.tap(twill::kDown);  // past "Sound" (the sound picker's row) to Engine
   for (int i = 0; i < 3; ++i) ui.tap(twill::kRight);  // engine: bass drum -> snare -> hi-hat -> sampler
   ui.tap(twill::kDown);
   ui.tap(twill::kRight);
@@ -3033,13 +3039,64 @@ void test_ui_find_your_way() {
   CHECK(ui.app.presses_to_fm(t) == 0);
   t.macro.engine = 2;
   t.macro.harmonics = 0.5f / 32 / 1.02f;  // patch 1
-  const std::string want = "DX7: bank 1 / " + twill::fm_voice_name(plaits::fm_patches_table[0], 0);
+  const std::string want = "DX7: " + twill::fm_voice_name(plaits::fm_patches_table[0], 0) + " (bank 1)";
   CHECK_MSG(ui.app.sound_summary(t) == want, "%s", ui.app.sound_summary(t).c_str());
   t.macro.engine = 8;
   CHECK(ui.app.sound_summary(t) == "Virtual analog");
 
   ui.app.open_quick_start();
   CHECK(ui.app.inspector_title() == "Quick start" && ui.app.inspector_fields().size() == 9);
+}
+
+// The sound picker: DX7 sounds by category (from banks/Categories), Twill's own DX7 banks, the
+// other engines, sampler and MIDI out; moving tries each sound, B puts the old one back, A keeps
+// it, and the whole visit is one undo step.
+void test_sound_picker() {
+  UiDriver ui;
+  ui.platform.write_file("banks/Categories/Bass 1.syx", twill::make_fm_bank_sysex(plaits::fm_patches_table[0]));
+  ui.platform.write_file("banks/Categories/Synth & Lead 01.syx", twill::make_fm_bank_sysex(plaits::fm_patches_table[1]));
+  const std::vector<twill::PickerGroup> groups = twill::sound_picker_groups(ui.app);
+  std::string labels;
+  for (const auto& g : groups) labels += g.label + "(" + std::to_string(g.items.size()) + "), ";
+  CHECK_MSG(labels == "DX7: Bass(32), DX7: Synth & Lead(32), DX7: Twill's own(96), Synth engines(21), "
+                      "Sampler: drums, samples(0), MIDI out: an external synth(0), DX7: a bank file...(0), ",
+            "%s", labels.c_str());
+  if (groups.size() < 4) return;
+  twill::Track t;
+  twill::apply_picker_item(t, groups[0].items[5]);
+  CHECK(t.instrument == twill::InstrumentType::Macro && t.macro.engine == 2 && t.fm_bank == "banks/Categories/Bass 1.syx" &&
+        twill::fm_patch_index(t) == 5);
+  int g = -1, i = -1;
+  twill::find_in_picker(groups, t, g, i);
+  CHECK(g == 0 && i == 5);
+  twill::apply_picker_item(t, groups[2].items[40]);  // Twill's own bank 2, patch 9
+  CHECK(t.fm_bank.empty() && t.macro.engine == 3 && twill::fm_patch_index(t) == 8);
+  twill::find_in_picker(groups, t, g, i);
+  CHECK(g == 2 && i == 40);
+
+  // Through the screens: the Sound view's first row is "Sound"; A opens the picker.
+  twill::Track va = ui.app.project().tracks[size_t(ui.app.track())];
+  va.instrument = twill::InstrumentType::Macro;
+  va.macro.engine = 8;  // Virtual analog: the picker opens on "Synth engines", the fourth group
+  ui.app.history().change_track(ui.app.track(), va);
+  ui.app.show(twill::App::View::Instrument);
+  const twill::Track before = ui.app.project().tracks[size_t(ui.app.track())];
+  ui.tap(twill::kA);  // the groups
+  for (int k = 0; k < 3; ++k) ui.tap(twill::kUp);
+  ui.tap(twill::kA);  // into "DX7: Bass": its first sound, tried
+  const twill::Track& now = ui.app.project().tracks[size_t(ui.app.track())];
+  CHECK(now.fm_bank == "banks/Categories/Bass 1.syx" && twill::fm_patch_index(now) == 0);
+  ui.tap(twill::kDown);  // the next, tried in its place
+  CHECK(twill::fm_patch_index(ui.app.project().tracks[size_t(ui.app.track())]) == 1);
+  ui.tap(twill::kB);  // back to the groups, the sound as it was
+  CHECK(ui.app.project().tracks[size_t(ui.app.track())] == before);
+  ui.tap(twill::kA);
+  ui.tap(twill::kDown);
+  ui.tap(twill::kDown);
+  ui.tap(twill::kA);  // kept: patch 3
+  CHECK(twill::fm_patch_index(ui.app.project().tracks[size_t(ui.app.track())]) == 2);
+  ui.tap(twill::kB, twill::kSelect);  // one undo: as before the picker
+  CHECK(ui.app.project().tracks[size_t(ui.app.track())] == before);
 }
 
 // The settings menu: the song, its music, export, MIDI, then the app's own settings and help.
@@ -4084,6 +4141,7 @@ int main(int argc, char** argv) {
       {"app_fm_bank", test_app_fm_bank},
       {"midi_file", test_midi_file},
       {"ui_find_your_way", test_ui_find_your_way},
+      {"sound_picker", test_sound_picker},
       {"ui_undo_delete_select_first", test_ui_undo_delete_select_first},
       {"ui_arrangement_steps_over_clips", test_ui_arrangement_steps_over_clips},
       {"ui_chiptune_preview_ends", test_ui_chiptune_preview_ends},

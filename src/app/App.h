@@ -151,7 +151,7 @@ class App {
   // the three six-op FM engines when the track plays a DX7 bank file.
   static std::string sound_label(const Track& t);
   // What a track sounds like, for its header and the top bar: the engine, or on a six-op FM engine
-  // the DX7 sound itself, "DX7: <bank> / <patch name>" ("DX7: Bass 1 / SOLID BASS").
+  // the DX7 sound itself, "DX7: <patch name> (<bank>)" ("DX7: SOLID BASS (Bass 1)").
   std::string sound_summary(const Track& t);
   // Buttons as named on screen ("A", "Sel+X", "R+Up/Down"): the handheld's names, or the computer
   // keys that stand for them while the player uses a keyboard (A -> X, B -> Z, X -> S, Y -> A, ...).

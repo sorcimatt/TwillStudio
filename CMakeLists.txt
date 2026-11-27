@@ -81,6 +81,7 @@ add_library(twill_core STATIC
   src/app/MidiSender.cpp
   src/app/ClockFollower.cpp
   src/app/SongNames.cpp
+  src/app/SoundPicker.cpp
   src/app/ArrangementView.cpp
   src/app/DemoSong.cpp
   src/app/FactorySounds.cpp
